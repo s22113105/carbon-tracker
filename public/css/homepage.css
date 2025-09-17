@@ -156,7 +156,7 @@ body {
     content: '🌍';
     font-size: 8rem;
     position: absolute;
-    top: 100%;
+    top: 95%;
     left: 50%;
     transform: translate(-50%, -50%);
 }
