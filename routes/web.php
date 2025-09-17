@@ -7,7 +7,7 @@ use App\Http\Controllers\User\DashboardController as UserDashboardController;
 use App\Http\Controllers\User\ChartController;
 use App\Http\Controllers\User\MapController;
 use App\Http\Controllers\User\AttendanceController;
-use App\Http\Controllers\User\AiController;
+use App\Http\Controllers\User\AiSuggestionController;
 use App\Http\Controllers\User\RealTimeController;
 
 /*
@@ -47,7 +47,6 @@ Route::middleware(['auth'])->prefix('user')->name('user.')->group(function () {
     Route::get('/charts', [ChartController::class, 'index'])->name('charts');                        // 碳排放統計圖表
     Route::get('/map', [MapController::class, 'index'])->name('map');                                // 地圖顯示通勤路線
     Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance');          // 打卡記錄管理
-    Route::get('/ai-suggestions', [AiController::class, 'index'])->name('ai-suggestions');          // AI 減碳建議
     Route::get('/realtime', [RealTimeController::class, 'index'])->name('realtime');                // 即時 GPS 監控
 });
 
@@ -55,3 +54,24 @@ Route::middleware(['auth'])->prefix('user')->name('user.')->group(function () {
 Route::get('/test-gps', function () {
     return view('test-gps-api');
 })->middleware('auth')->name('test.gps');                                                            // GPS API 測試頁面
+
+// AI 建議相關路由 (需要登入)
+Route::middleware(['auth'])->group(function () {
+    
+    // AI 建議頁面
+    Route::get('/user/ai-suggestions', [AiSuggestionController::class, 'index'])
+        ->name('user.ai-suggestions');
+    
+    // 生成 AI 建議
+    Route::post('/user/ai-suggestions/generate', [AiSuggestionController::class, 'getSuggestions'])
+        ->name('user.ai-suggestions.generate');
+    
+    // 分析 GPS 資料
+    Route::post('/user/ai-suggestions/analyze-gps', [AiSuggestionController::class, 'analyzeGpsData'])
+        ->name('user.ai-suggestions.analyze');
+    
+    // 重新分析所有行程
+    Route::post('/user/ai-suggestions/reanalyze', [AiSuggestionController::class, 'reanalyzeAllTrips'])
+        ->name('user.ai-suggestions.reanalyze');
+    
+});
