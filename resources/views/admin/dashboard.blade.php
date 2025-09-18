@@ -16,22 +16,17 @@
         </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link" href="#">
+        <a class="nav-link" href="{{ route('admin.statistics') }}">
             <i class="fas fa-chart-bar me-2"></i>全公司統計
         </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link" href="#">
+        <a class="nav-link" href="{{ route('admin.geofence') }}">
             <i class="fas fa-map-marked-alt me-2"></i>地理圍欄設定
         </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link" href="#">
-            <i class="fas fa-download me-2"></i>報表匯出
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" href="#">
+        <a class="nav-link" href="{{ route('admin.settings') }}">
             <i class="fas fa-cog me-2"></i>系統設定
         </a>
     </li>
