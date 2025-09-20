@@ -150,14 +150,6 @@ Route::middleware(['auth'])->prefix('user')->name('user.')->group(function () {
     Route::post('/realtime/start-tracking', [RealtimeController::class, 'startTracking'])->name('realtime.start-tracking');
     Route::post('/realtime/stop-tracking', [RealtimeController::class, 'stopTracking'])->name('realtime.stop-tracking');
     
-    // AI建議頁面
-    Route::get('/ai-suggestions', [AiSuggestionController::class, 'index'])->name('ai-suggestions');
-    Route::post('/ai-suggestions/analyze', [AiSuggestionController::class, 'getSuggestions'])->name('ai-suggestions.analyze');
-    Route::post('/ai-suggestions/gps-analysis', [AiSuggestionController::class, 'analyzeGpsData'])->name('ai-suggestions.gps-analysis');
-    Route::post('/ai-suggestions/get-recommendations', [AiSuggestionController::class, 'getRecommendations'])->name('ai-suggestions.recommendations');
-    Route::post('/ai-suggestions/carbon-optimization', [AiSuggestionController::class, 'getCarbonOptimization'])->name('ai-suggestions.carbon-optimization');
-    Route::get('/ai-suggestions/history', [AiSuggestionController::class, 'getAnalysisHistory'])->name('ai-suggestions.history');
-    
     // 個人設定
     Route::get('/profile', [UserDashboardController::class, 'profile'])->name('profile');
     Route::post('/profile/update', [UserDashboardController::class, 'updateProfile'])->name('profile.update');
