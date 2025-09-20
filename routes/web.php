@@ -119,25 +119,54 @@ Route::get('/test-gps', function () {
     return view('test-gps-api');
 })->middleware('auth')->name('test.gps');                                                            // GPS API 測試頁面
 
-// AI 建議相關路由 (需要登入)
+// AI 建議相關路由 (需要登入) - 確保在 routes/web.php 中有這些路由
 Route::middleware(['auth'])->group(function () {
     
     // AI 建議頁面
-    Route::get('/user/ai-suggestions', [AiSuggestionController::class, 'index'])
+    Route::get('/user/ai-suggestions', [App\Http\Controllers\User\AiSuggestionController::class, 'index'])
         ->name('user.ai-suggestions');
     
-    // 生成 AI 建議
-    Route::post('/user/ai-suggestions/generate', [AiSuggestionController::class, 'getSuggestions'])
+    // 生成 AI 建議 (原有的方法)
+    Route::post('/user/ai-suggestions/generate', [App\Http\Controllers\User\AiSuggestionController::class, 'getSuggestions'])
         ->name('user.ai-suggestions.generate');
     
-    // 分析 GPS 資料
-    Route::post('/user/ai-suggestions/analyze-gps', [AiSuggestionController::class, 'analyzeGpsData'])
+    // 分析 GPS 資料 (新增的方法)
+    Route::post('/user/ai-suggestions/analyze-gps', [App\Http\Controllers\User\AiSuggestionController::class, 'analyzeGpsData'])
         ->name('user.ai-suggestions.analyze');
     
     // 重新分析所有行程
-    Route::post('/user/ai-suggestions/reanalyze', [AiSuggestionController::class, 'reanalyzeAllTrips'])
+    Route::post('/user/ai-suggestions/reanalyze', [App\Http\Controllers\User\AiSuggestionController::class, 'reanalyzeAllTrips'])
         ->name('user.ai-suggestions.reanalyze');
     
+    // 獲取日期範圍選項
+    Route::get('/user/ai-suggestions/date-options', [App\Http\Controllers\User\AiSuggestionController::class, 'getDateRangeOptions'])
+        ->name('user.ai-suggestions.date-options');
+});
+
+// 測試路由（開發時使用）
+Route::middleware(['auth'])->group(function () {
+    Route::get('/test-ai-analysis', function () {
+        $userId = Auth::id();
+        $startDate = now()->subDays(7)->format('Y-m-d');
+        $endDate = now()->format('Y-m-d');
+        
+        try {
+            $aiService = app(App\Services\AIAnalysisService::class);
+            $result = $aiService->analyzeGpsData($userId, $startDate, $endDate);
+            
+            return response()->json([
+                'success' => true,
+                'data' => $result,
+                'message' => 'AI分析測試成功'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'message' => 'AI分析測試失敗'
+            ]);
+        }
+    })->name('test.ai.analysis');
 });
 
 // ===== 公開 API 路由 (無需認證) =====
