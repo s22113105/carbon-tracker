@@ -103,18 +103,18 @@ Route::middleware(['auth:sanctum'])->prefix('api')->name('api.')->group(function
     // Route::get('/geofences/{id}/statistics', [App\Http\Controllers\Api\GeofenceController::class, 'statistics'])->name('geofences.statistics');
     
     // GPS 記錄 API
-    Route::apiResource('gps-records', App\Http\Controllers\Api\GpsRecordController::class);
-    Route::post('/gps-records/batch', [App\Http\Controllers\Api\GpsRecordController::class, 'storeBatch'])->name('gps-records.batch');
+    // Route::apiResource('gps-records', App\Http\Controllers\Api\GpsRecordController::class);
+    // Route::post('/gps-records/batch', [App\Http\Controllers\Api\GpsRecordController::class, 'storeBatch'])->name('gps-records.batch');
     
-    // 行程 API
-    Route::apiResource('trips', App\Http\Controllers\Api\TripController::class);
-    Route::post('/trips/{id}/complete', [App\Http\Controllers\Api\TripController::class, 'complete'])->name('trips.complete');
-    Route::get('/trips/{id}/statistics', [App\Http\Controllers\Api\TripController::class, 'statistics'])->name('trips.statistics');
+    // // 行程 API
+    // Route::apiResource('trips', App\Http\Controllers\Api\TripController::class);
+    // Route::post('/trips/{id}/complete', [App\Http\Controllers\Api\TripController::class, 'complete'])->name('trips.complete');
+    // Route::get('/trips/{id}/statistics', [App\Http\Controllers\Api\TripController::class, 'statistics'])->name('trips.statistics');
     
-    // 碳排放 API
-    Route::apiResource('carbon-emissions', App\Http\Controllers\Api\CarbonEmissionController::class);
-    Route::get('/carbon-emissions/statistics/monthly', [App\Http\Controllers\Api\CarbonEmissionController::class, 'monthlyStatistics'])->name('carbon-emissions.monthly-stats');
-    Route::get('/carbon-emissions/statistics/transport', [App\Http\Controllers\Api\CarbonEmissionController::class, 'transportStatistics'])->name('carbon-emissions.transport-stats');
+    // // 碳排放 API
+    // Route::apiResource('carbon-emissions', App\Http\Controllers\Api\CarbonEmissionController::class);
+    // Route::get('/carbon-emissions/statistics/monthly', [App\Http\Controllers\Api\CarbonEmissionController::class, 'monthlyStatistics'])->name('carbon-emissions.monthly-stats');
+    // Route::get('/carbon-emissions/statistics/transport', [App\Http\Controllers\Api\CarbonEmissionController::class, 'transportStatistics'])->name('carbon-emissions.transport-stats');
 });
 
 // ===== 公開 API 路由（不需要認證）=====
