@@ -7,6 +7,14 @@
         </div>
     @endif
 
+    <!-- 錯誤訊息 -->
+    @if (session()->has('error'))
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>{{ session('error') }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    @endif
+
     <!-- 篩選功能 -->
     <div class="card mb-4">
         <div class="card-header">
@@ -284,4 +292,11 @@
             </div>
         </div>
     @endif
+
+    <!-- Loading 狀態 -->
+    <div wire:loading class="position-fixed top-50 start-50 translate-middle" style="z-index: 9999;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">載入中...</span>
+        </div>
+    </div>
 </div>

@@ -32,6 +32,11 @@
     </li>
 @endsection
 
+@section('styles')
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+@endsection
+
 @section('content')
 <div class="row mb-4">
     <div class="col-md-12">
@@ -257,8 +262,8 @@
 @endsection
 
 @section('scripts')
+<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
 <script>
 let map;
@@ -270,8 +275,8 @@ let clickMarker = null;
 
 // 初始化地圖
 function initMap() {
-    // 預設中心點（台北）
-    map = L.map('geofenceMap').setView([25.0330, 121.5654], 13);
+    // 預設中心點（樹德科技大學）
+    map = L.map('geofenceMap').setView([22.7632038, 120.3757461], 15);
     
     // 使用 OpenStreetMap
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -352,7 +357,10 @@ function addGeofenceToMap(geofence) {
 
 // 事件處理器
 document.addEventListener('DOMContentLoaded', function() {
-    initMap();
+    // 確保 DOM 完全載入後才初始化地圖
+    setTimeout(function() {
+        initMap();
+    }, 100);
     
     // 新增圍欄按鈕
     document.getElementById('addGeofenceBtn').addEventListener('click', function() {

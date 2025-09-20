@@ -35,10 +35,11 @@
 @section('content')
 <div class="row mb-4">
     <div class="col-md-12">
-        <h1>使用者管理</h1>
-        <p class="text-muted">管理系統中的所有使用者，查看使用統計和權限設定</p>
+        <h1><i class="fas fa-users me-2"></i>使用者管理</h1>
+        <p class="text-muted">管理系統使用者、權限設定和帳號狀態</p>
     </div>
 </div>
 
 @livewire('admin.user-management')
+
 @endsection

@@ -40,6 +40,9 @@
     </div>
 </div>
 
+<!-- 警告訊息區域 -->
+<div id="alertContainer"></div>
+
 <!-- 總體統計卡片 -->
 <div class="row mb-4">
     <div class="col-lg-2 col-md-4 col-sm-6 mb-3">
@@ -93,6 +96,69 @@
                 <i class="fas fa-calculator fa-2x mb-2"></i>
                 <h3>{{ round($totalStats['total_emissions'] / max(1, $totalStats['total_users']), 1) }}</h3>
                 <p class="mb-0">人均排放(kg)</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 報表匯出區域 -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-file-export me-2"></i>報表匯出 (CSV 格式)</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- 快速匯出 -->
+                    <div class="col-lg-6">
+                        <h6 class="text-muted mb-3">快速匯出</h6>
+                        <div class="row">
+                            <div class="col-md-4 mb-2">
+                                <a href="{{ route('admin.statistics.export', ['type' => 'users', 'format' => 'csv']) }}" 
+                                   class="btn btn-outline-primary d-grid">
+                                    <i class="fas fa-users me-2"></i>使用者資料
+                                </a>
+                            </div>
+                            <div class="col-md-4 mb-2">
+                                <a href="{{ route('admin.statistics.export', ['type' => 'emissions', 'format' => 'csv']) }}" 
+                                   class="btn btn-outline-danger d-grid">
+                                    <i class="fas fa-smog me-2"></i>碳排放資料
+                                </a>
+                            </div>
+                            <div class="col-md-4 mb-2">
+                                <a href="{{ route('admin.statistics.export', ['type' => 'trips', 'format' => 'csv']) }}" 
+                                   class="btn btn-outline-success d-grid">
+                                    <i class="fas fa-route me-2"></i>行程資料
+                                </a>
+                            </div>
+                        </div>
+                        <div class="row mt-2">
+                            <div class="col-md-12">
+                                <button class="btn btn-outline-info" onclick="openAdvancedExport()">
+                                    <i class="fas fa-cog me-2"></i>進階匯出（自訂日期範圍）
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 匯出說明 -->
+                    <div class="col-lg-6">
+                        <h6 class="text-muted mb-3">匯出說明</h6>
+                        <div class="alert alert-info mb-0">
+                            <small>
+                                <i class="fas fa-info-circle me-2"></i>
+                                <strong>CSV 格式說明：</strong><br>
+                                • 使用 UTF-8 編碼，已解決中文亂碼問題<br>
+                                • 支援所有試算表軟體（Excel、Google Sheets、LibreOffice）<br>
+                                • 檔案較小，下載速度快<br>
+                                • 進階匯出可自訂日期範圍和統計內容<br><br>
+                                <strong>使用建議：</strong><br>
+                                用 Excel 開啟時請選擇「資料 → 從文字檔」來正確載入
+                            </small>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -232,7 +298,7 @@
                                 <td>
                                     <i class="fas fa-{{ $transport['mode_code'] === 'walking' ? 'walking' : 
                                         ($transport['mode_code'] === 'bus' ? 'bus' : 
-                                        ($transport['mode_code'] === 'mrt' ? 'subway' : 
+                                        ($transport['mode_code'] === 'metro' ? 'subway' : 
                                         ($transport['mode_code'] === 'car' ? 'car' : 
                                         ($transport['mode_code'] === 'motorcycle' ? 'motorcycle' : 'question')))) }} me-2"></i>
                                     {{ $transport['mode'] }}
@@ -303,31 +369,17 @@
     </div>
 </div>
 
-<!-- 部門統計 (如果有的話) -->
+<!-- 部門統計 -->
 <div class="row mb-4">
     <div class="col-md-12">
         <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-building me-2"></i>各部門碳排放統計</h5>
-                <div class="dropdown">
-                    <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" 
-                            id="exportDropdown" data-bs-toggle="dropdown">
-                        <i class="fas fa-download me-2"></i>匯出報表
-                    </button>
-                    <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="{{ route('admin.statistics.export', ['type' => 'users', 'format' => 'csv']) }}">
-                            <i class="fas fa-users me-2"></i>使用者資料 (CSV)</a></li>
-                        <li><a class="dropdown-item" href="{{ route('admin.statistics.export', ['type' => 'emissions', 'format' => 'csv']) }}">
-                            <i class="fas fa-smog me-2"></i>碳排放資料 (CSV)</a></li>
-                        <li><a class="dropdown-item" href="{{ route('admin.statistics.export', ['type' => 'trips', 'format' => 'csv']) }}">
-                            <i class="fas fa-route me-2"></i>行程資料 (CSV)</a></li>
-                    </ul>
-                </div>
             </div>
             <div class="card-body">
                 <div class="row">
                     @foreach($departmentStats as $dept)
-                    <div class="col-lg-4 col-md-6 mb-3">
+                    <div class="col-lg-3 col-md-6 mb-3">
                         <div class="card">
                             <div class="card-body text-center">
                                 <h6 class="card-title">{{ $dept['name'] }}</h6>
@@ -343,7 +395,7 @@
                                 </div>
                                 <div class="mt-2">
                                     <small class="text-muted">
-                                        人均: {{ round($dept['emissions'] / $dept['users'], 1) }} kg
+                                        人均: {{ round($dept['emissions'] / max(1, $dept['users']), 1) }} kg
                                     </small>
                                 </div>
                             </div>
@@ -356,11 +408,121 @@
     </div>
 </div>
 
+<!-- 進階匯出 Modal -->
+<div class="modal fade" id="advancedExportModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-cog me-2"></i>進階匯出設定
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="advancedExportForm">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">開始日期</label>
+                                <input type="date" class="form-control" id="exportDateFrom" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">結束日期</label>
+                                <input type="date" class="form-control" id="exportDateTo" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        進階匯出將包含指定日期範圍內的綜合統計資料，格式為 CSV
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-download me-2"></i>匯出 CSV 報表
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 @endsection
 
 @section('scripts')
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+// 設定預設日期
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date();
+    const oneMonthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    document.getElementById('exportDateTo').value = today.toISOString().split('T')[0];
+    document.getElementById('exportDateFrom').value = oneMonthAgo.toISOString().split('T')[0];
+});
+
+// 開啟進階匯出視窗
+function openAdvancedExport() {
+    const modal = new bootstrap.Modal(document.getElementById('advancedExportModal'));
+    modal.show();
+}
+
+// 進階匯出表單提交
+document.getElementById('advancedExportForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const dateFrom = document.getElementById('exportDateFrom').value;
+    const dateTo = document.getElementById('exportDateTo').value;
+    
+    if (!dateFrom || !dateTo) {
+        showAlert('error', '請選擇日期範圍');
+        return;
+    }
+    
+    if (new Date(dateFrom) > new Date(dateTo)) {
+        showAlert('error', '開始日期不能晚於結束日期');
+        return;
+    }
+    
+    // 建立下載連結
+    const url = `{{ route('admin.statistics.export-advanced') }}?date_from=${dateFrom}&date_to=${dateTo}&format=csv`;
+    window.location.href = url;
+    
+    // 關閉 Modal
+    bootstrap.Modal.getInstance(document.getElementById('advancedExportModal')).hide();
+    
+    showAlert('success', 'CSV 報表下載已開始');
+});
+
+// 顯示警告訊息
+function showAlert(type, message) {
+    const alertContainer = document.getElementById('alertContainer');
+    const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+    const iconClass = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+    
+    const alertHtml = `
+        <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+            <i class="fas ${iconClass} me-2"></i>${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    alertContainer.innerHTML = alertHtml;
+    
+    // 自動消失
+    setTimeout(() => {
+        const alert = alertContainer.querySelector('.alert');
+        if (alert) {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        }
+    }, 5000);
+}
+
 // 近30天趨勢圖
 const dailyCtx = document.getElementById('dailyStatsChart').getContext('2d');
 new Chart(dailyCtx, {
