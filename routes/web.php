@@ -11,7 +11,7 @@ use App\Http\Controllers\HomeController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Admin\GeofenceController as AdminGeofenceController;
-use App\Http\Controllers\Admin\StatisticsController as AdminStatisticsController;
+use App\Http\Controllers\Admin\StatisticsController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 
 // User Controllers
@@ -73,13 +73,9 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('/users/{user}/reset-password', [AdminUserController::class, 'resetPassword'])->name('users.reset-password');
     
     // 全公司統計
-    Route::get('/statistics', [AdminStatisticsController::class, 'index'])->name('statistics');
-    Route::get('/statistics/overview', [AdminStatisticsController::class, 'getOverview'])->name('statistics.overview');
-    Route::get('/statistics/export/{type}', [AdminStatisticsController::class, 'export'])->name('statistics.export');
-    Route::get('/statistics/carbon-trends', [AdminStatisticsController::class, 'getCarbonTrends'])->name('statistics.carbon-trends');
-    Route::get('/statistics/transport-analysis', [AdminStatisticsController::class, 'getTransportAnalysis'])->name('statistics.transport-analysis');
-    Route::get('/statistics/user-rankings', [AdminStatisticsController::class, 'getUserRankings'])->name('statistics.user-rankings');
-    Route::get('/statistics/monthly-report', [AdminStatisticsController::class, 'getMonthlyReport'])->name('statistics.monthly-report');
+    Route::get('/statistics', [StatisticsController::class, 'index'])->name('statistics');
+    Route::get('/statistics/export/{type}', [StatisticsController::class, 'exportData'])->name('statistics.export');
+    Route::get('/statistics/export-advanced', [StatisticsController::class, 'exportAdvancedReport'])->name('statistics.export-advanced');
     
     // 地理圍欄設定
     Route::get('/geofence', [AdminGeofenceController::class, 'index'])->name('geofence');
@@ -211,8 +207,8 @@ Route::middleware(['auth:sanctum'])->prefix('api')->name('api.')->group(function
 Route::prefix('api/public')->name('api.public.')->group(function () {
     
     // GPS 資料接收端點
-    Route::post('/gps', [App\Http\Controllers\Api\GpsController::class, 'storePublic'])->name('gps.store');
-    Route::post('/gps/batch', [App\Http\Controllers\Api\GpsController::class, 'storeBatchPublic'])->name('gps.batch');
+    Route::post('/gps', [ApiGpsController::class, 'storePublic'])->name('gps.store');
+    Route::post('/gps/batch', [ApiGpsController::class, 'storeBatchPublic'])->name('gps.batch');
     
     // 系統狀態檢查
     Route::get('/health', function () {
@@ -226,9 +222,9 @@ Route::prefix('api/public')->name('api.public.')->group(function () {
     })->name('health');
     
     // 設備認證
-    Route::post('/device/auth', [App\Http\Controllers\Api\DeviceController::class, 'authenticate'])->name('device.auth');
-    Route::post('/device/register', [App\Http\Controllers\Api\DeviceController::class, 'register'])->name('device.register');
-    Route::get('/device/config', [App\Http\Controllers\Api\DeviceController::class, 'getConfig'])->name('device.config');
+    Route::post('/device/auth', [ApiDeviceController::class, 'authenticate'])->name('device.auth');
+    Route::post('/device/register', [ApiDeviceController::class, 'register'])->name('device.register');
+    Route::get('/device/config', [ApiDeviceController::class, 'getConfig'])->name('device.config');
     
     // 交通工具列表
     Route::get('/transport-modes', function () {
@@ -263,8 +259,8 @@ Route::prefix('api/public')->name('api.public.')->group(function () {
     })->name('emission-factors');
     
     // 地理圍欄檢查
-    Route::post('/geofence/check', [App\Http\Controllers\Api\GeofenceController::class, 'checkPublic'])->name('geofence.check');
-    Route::get('/geofence/list', [App\Http\Controllers\Api\GeofenceController::class, 'getPublicList'])->name('geofence.list');
+    Route::post('/geofence/check', [ApiGeofenceController::class, 'checkPublic'])->name('geofence.check');
+    Route::get('/geofence/list', [ApiGeofenceController::class, 'getPublicList'])->name('geofence.list');
     
     // 時間同步
     Route::get('/time', function () {
