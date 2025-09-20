@@ -20,7 +20,7 @@ use App\Http\Controllers\User\ChartController;
 use App\Http\Controllers\User\MapController;
 use App\Http\Controllers\User\AttendanceController;
 use App\Http\Controllers\User\RealtimeController;
-use App\Http\Controllers\User\AiSuggestionController;
+use App\Http\Controllers\CarbonFootprintController;
 
 // API Controllers
 use App\Http\Controllers\Api\UserController as ApiUserController;
@@ -158,6 +158,17 @@ Route::middleware(['auth'])->prefix('user')->name('user.')->group(function () {
     Route::get('/reports/transport-analysis', [UserDashboardController::class, 'getTransportAnalysisReport'])->name('reports.transport-analysis');
     Route::get('/reports/monthly-summary', [UserDashboardController::class, 'getMonthlySummaryReport'])->name('reports.monthly-summary');
     Route::post('/reports/generate-pdf', [UserDashboardController::class, 'generatePdfReport'])->name('reports.generate-pdf');
+});
+
+// ===== 碳足跡分析路由群組（修正後）=====
+Route::middleware(['auth'])->prefix('user')->name('user.')->group(function () {
+    // 碳足跡分析相關路由
+    Route::prefix('carbon')->name('carbon.')->group(function () {
+        Route::get('/', [CarbonFootprintController::class, 'index'])->name('index');
+        Route::post('/analyze', [CarbonFootprintController::class, 'analyze'])->name('analyze');
+        Route::get('/history', [CarbonFootprintController::class, 'history'])->name('history');
+        Route::get('/analysis/{id}', [CarbonFootprintController::class, 'show'])->name('show');
+    });
 });
 
 // ===== API 路由群組 =====

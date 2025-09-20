@@ -7,13 +7,13 @@ use Illuminate\Database\Seeder;
 class DatabaseSeeder extends Seeder
 {
     /**
-     * Seed the application's database.
+     * 執行資料庫種子
      */
     public function run(): void
     {
-        // 創建使用者和GPS測試資料
         $this->call([
-            GpsDataSeeder::class,
+            GpsTrackSeeder::class,
+            // 如果你有其他的 seeder 也可以在這裡加入
         ]);
     }
 }

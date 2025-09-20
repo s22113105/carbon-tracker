@@ -31,9 +31,14 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // 新增 OpenAI 配置
     'openai' => [
-        'key' => env('OPENAI_API_KEY'),
-        'organization' => env('OPENAI_ORGANIZATION', null),
+        'api_key' => env('OPENAI_API_KEY'),
+        'api_url' => env('OPENAI_API_URL', 'https://api.openai.com/v1/chat/completions'),
+        'model' => env('OPENAI_MODEL', 'gpt-4'),
+        'max_tokens' => env('OPENAI_MAX_TOKENS', 2000),
+        'temperature' => env('OPENAI_TEMPERATURE', 0.3),
+        'timeout' => env('OPENAI_TIMEOUT', 60),
     ],
 
 ];
