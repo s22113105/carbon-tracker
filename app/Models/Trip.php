@@ -34,6 +34,6 @@ class Trip extends Model
 
     public function carbonEmission()
     {
-        return $this->hasOne(CarbonEmission::class);
+        return $this->hasOne(CarbonEmissionAnalysis::class);
     }
 }
