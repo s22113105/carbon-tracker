@@ -4,6 +4,7 @@ namespace App\Livewire\User;
 
 use Livewire\Component;
 use App\Models\CarbonEmission;
+use App\Models\CarbonEmissionAnalysis;
 
 class DashboardStats extends Component
 {
@@ -21,19 +22,19 @@ class DashboardStats extends Component
         $userId = auth()->id();
         
         // 今日排放
-        $this->todayEmission = CarbonEmission::where('user_id', $userId)
-            ->whereDate('emission_date', today())
-            ->sum('co2_emission');
+        $this->todayEmission = CarbonEmissionAnalysis::where('user_id', $userId)
+            ->whereDate('analysis_date', today())
+            ->sum('carbon_emission');
 
         // 本週排放
-        $this->weekEmission = CarbonEmission::where('user_id', $userId)
-            ->whereBetween('emission_date', [now()->startOfWeek(), now()->endOfWeek()])
-            ->sum('co2_emission');
+        $this->weekEmission = CarbonEmissionAnalysis::where('user_id', $userId)
+            ->whereBetween('analysis_date', [now()->startOfWeek(), now()->endOfWeek()])
+            ->sum('carbon_emission');
 
         // 本月排放
-        $this->monthEmission = CarbonEmission::where('user_id', $userId)
-            ->whereMonth('emission_date', now()->month)
-            ->sum('co2_emission');
+        $this->monthEmission = CarbonEmissionAnalysis::where('user_id', $userId)
+            ->whereMonth('analysis_date', now()->month)
+            ->sum('carbon_emission');
     }
 
     public function render()

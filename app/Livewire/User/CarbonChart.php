@@ -4,6 +4,7 @@ namespace App\Livewire\User;
 
 use Livewire\Component;
 use App\Models\CarbonEmission;
+use App\Models\CarbonEmissionAnalysis;
 use Carbon\Carbon;
 
 class CarbonChart extends Component
@@ -31,9 +32,9 @@ class CarbonChart extends Component
             // 過去7天的資料
             $this->chartData = collect(range(6, 0))->map(function ($days) use ($userId) {
                 $date = Carbon::today()->subDays($days);
-                $emission = CarbonEmission::where('user_id', $userId)
-                    ->whereDate('emission_date', $date)
-                    ->sum('co2_emission');
+                $emission = CarbonEmissionAnalysis::where('user_id', $userId)
+                    ->whereDate('analysis_date', $date)
+                    ->sum('carbon_emission');
                 
                 return [
                     'label' => $date->format('m/d'),
@@ -45,11 +46,11 @@ class CarbonChart extends Component
             $this->chartData = collect(range(3, 0))->map(function ($weeks) use ($userId) {
                 $startOfWeek = Carbon::today()->subWeeks($weeks)->startOfWeek();
                 $endOfWeek = Carbon::today()->subWeeks($weeks)->endOfWeek();
-                
-                $emission = CarbonEmission::where('user_id', $userId)
-                    ->whereBetween('emission_date', [$startOfWeek, $endOfWeek])
-                    ->sum('co2_emission');
-                
+
+                $emission = CarbonEmissionAnalysis::where('user_id', $userId)
+                    ->whereBetween('analysis_date', [$startOfWeek, $endOfWeek])
+                    ->sum('carbon_emission');
+
                 return [
                     'label' => $startOfWeek->format('m/d'),
                     'value' => round($emission, 2)
@@ -61,9 +62,9 @@ class CarbonChart extends Component
     public function loadTransportData()
     {
         $userId = auth()->id();
-        
-        $transportStats = CarbonEmission::where('user_id', $userId)
-            ->selectRaw('transport_mode, SUM(co2_emission) as total_emission, COUNT(*) as count')
+
+        $transportStats = CarbonEmissionAnalysis::where('user_id', $userId)
+            ->selectRaw('transport_mode, SUM(carbon_emission) as total_emission, COUNT(*) as count')
             ->groupBy('transport_mode')
             ->get();
 

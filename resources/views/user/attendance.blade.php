@@ -36,8 +36,8 @@
         </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link" href="{{ route('user.carbon.index') }}">
-            <i class="fas fa-lightbulb me-2"></i>AI 減碳建議
+        <a class="nav-link" href="{{ route('user.carbon.aiAnalyses') }}">
+            <i class="fas fa-lightbulb me-2"></i>AI 碳排放分析
         </a>
     </li>
 @endsection

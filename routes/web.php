@@ -333,17 +333,6 @@ if (app()->environment('local', 'development')) {
     });
 }
 
-use App\Http\Controllers\CarbonEmissionController;
-
-Route::middleware(['auth'])->group(function () {
-    Route::prefix('carbon')->name('carbon.')->group(function () {
-        Route::get('/', [CarbonEmissionController::class, 'index'])->name('index');
-        Route::post('/analyze', [CarbonEmissionController::class, 'analyze'])->name('analyze');
-        Route::get('/history', [CarbonEmissionController::class, 'history'])->name('history');
-        Route::get('/statistics', [CarbonEmissionController::class, 'statistics'])->name('statistics');
-    });
-});
-
 use App\Http\Controllers\TestOpenAIController;
 
 Route::middleware(['auth'])->prefix('test')->group(function () {
@@ -351,6 +340,32 @@ Route::middleware(['auth'])->prefix('test')->group(function () {
     Route::get('/openai/analysis', [TestOpenAIController::class, 'testAnalysis']);
     Route::get('/openai/all-modes', [TestOpenAIController::class, 'testAllModes']);
     Route::post('/openai/real-data', [TestOpenAIController::class, 'testRealData']);
+});
+
+use App\Http\Controllers\User\CarbonEmissionController;
+
+// 使用者功能路由群組
+Route::middleware(['auth'])->prefix('user')->name('user.')->group(function () {
+    
+    // 碳排放 AI 分析
+    Route::prefix('carbon')->name('carbon.')->group(function () {
+        // 主要功能
+        Route::get('/ai-analyses', [CarbonEmissionController::class, 'aiAnalyses'])->name('aiAnalyses');
+        Route::post('/analyze', [CarbonEmissionController::class, 'analyze'])->name('analyze');
+        Route::get('/history', [CarbonEmissionController::class, 'history'])->name('history');
+        Route::get('/statistics', [CarbonEmissionController::class, 'statistics'])->name('statistics');
+        
+        // 測試功能（透過 Konami Code 啟動）
+        Route::prefix('test')->group(function () {
+            Route::get('/connection', [CarbonEmissionController::class, 'testConnection']);
+            Route::get('/analysis', [CarbonEmissionController::class, 'testAnalysis']);
+            Route::get('/all-modes', [CarbonEmissionController::class, 'testAllModes']);
+            Route::get('/config', [CarbonEmissionController::class, 'getConfig']);
+            Route::post('/clear-cache', [CarbonEmissionController::class, 'clearCache']);
+        });
+
+        Route::get('/user/carbon/ai-analyses', [CarbonEmissionController::class, 'aiAnalyses'])->name('user.carbon.aiAnalyses');
+    });
 });
 
 // ===== 錯誤處理路由 =====
