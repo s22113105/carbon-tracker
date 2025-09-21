@@ -21,11 +21,6 @@
         </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link" href="#">
-            <i class="fas fa-chart-pie me-2"></i>交通工具使用分布
-        </a>
-    </li>
-    <li class="nav-item">
         <a class="nav-link active" href="{{ route('user.attendance') }}">
             <i class="fas fa-clock me-2"></i>打卡紀錄
         </a>
