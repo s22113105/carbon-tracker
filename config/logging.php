@@ -117,6 +117,12 @@ return [
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
         ],
+        'openai' => [
+        'driver' => 'daily',
+        'path' => storage_path('logs/openai.log'),
+        'level' => 'debug',
+        'days' => 14,
+    ],
     ],
 
 ];

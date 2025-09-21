@@ -333,6 +333,26 @@ if (app()->environment('local', 'development')) {
     });
 }
 
+use App\Http\Controllers\CarbonEmissionController;
+
+Route::middleware(['auth'])->group(function () {
+    Route::prefix('carbon')->name('carbon.')->group(function () {
+        Route::get('/', [CarbonEmissionController::class, 'index'])->name('index');
+        Route::post('/analyze', [CarbonEmissionController::class, 'analyze'])->name('analyze');
+        Route::get('/history', [CarbonEmissionController::class, 'history'])->name('history');
+        Route::get('/statistics', [CarbonEmissionController::class, 'statistics'])->name('statistics');
+    });
+});
+
+use App\Http\Controllers\TestOpenAIController;
+
+Route::middleware(['auth'])->prefix('test')->group(function () {
+    Route::get('/openai/connection', [TestOpenAIController::class, 'testConnection']);
+    Route::get('/openai/analysis', [TestOpenAIController::class, 'testAnalysis']);
+    Route::get('/openai/all-modes', [TestOpenAIController::class, 'testAllModes']);
+    Route::post('/openai/real-data', [TestOpenAIController::class, 'testRealData']);
+});
+
 // ===== 錯誤處理路由 =====
 Route::fallback(function () {
     if (request()->expectsJson()) {
