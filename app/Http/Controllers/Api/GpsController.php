@@ -4,29 +4,22 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-use App\Models\GpsRecord;
-use App\Models\Trip;
-use App\Models\CarbonEmission;
-use App\Models\User;
-use App\Services\TransportAnalysisService;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class GpsController extends Controller
 {
-    protected $analysisService;
-    
-    public function __construct(TransportAnalysisService $analysisService)
-    {
-        $this->analysisService = $analysisService;
-    }
-    
+    /**
+     * 接收ESP32的GPS資料
+     */
     public function store(Request $request)
     {
         try {
-            // 記錄原始請求用於調試
-            \Log::info('ESP32 GPS Data Received:', $request->all());
+            // 記錄接收到的資料
+            Log::info('ESP32 GPS Data Received:', $request->all());
             
-            // 驗證 ESP32 送來的資料格式
+            // 基本資料驗證
             $validated = $request->validate([
                 'device_id' => 'required|string',
                 'latitude' => 'required|numeric|between:-90,90',
@@ -36,246 +29,253 @@ class GpsController extends Controller
                 'battery_level' => 'nullable|integer|between:0,100',
             ]);
 
-            // 根據 device_id 映射到使用者（您可以建立設備-使用者映射表）
-            $user = $this->getUserByDeviceId($validated['device_id']);
-            if (!$user) {
+            // 設備ID映射到用戶ID（您可以根據需要調整）
+            $userId = $this->getUserIdFromDevice($validated['device_id']);
+            
+            if (!$userId) {
                 return response()->json([
                     'success' => false,
-                    'message' => '設備未註冊或找不到對應使用者'
+                    'message' => '未找到對應的用戶'
                 ], 404);
             }
 
             // 處理時間戳
-            $recordedAt = now();
-            if (isset($validated['timestamp']) && $validated['timestamp'] !== '') {
-                try {
-                    // ESP32 傳送的時間格式：2024-1-1 12:0:0
-                    $recordedAt = Carbon::createFromFormat('Y-n-j G:i:s', $validated['timestamp']);
-                } catch (\Exception $e) {
-                    // 如果解析失敗，使用當前時間
-                    $recordedAt = now();
-                }
-            }
+            $recordedAt = $this->parseTimestamp($validated['timestamp'] ?? null);
 
-            // 儲存 GPS 記錄
-            $gpsRecord = GpsRecord::create([
-                'user_id' => $user->id,
+            // 儲存到 gps_tracks 表（根據您的migration結構）
+            $gpsTrackId = DB::table('gps_tracks')->insertGetId([
+                'user_id' => $userId,
                 'latitude' => $validated['latitude'],
                 'longitude' => $validated['longitude'],
-                'recorded_at' => $recordedAt,
-                'accuracy' => null, // ESP32 未提供
                 'speed' => $validated['speed'] ?? 0,
+                'recorded_at' => $recordedAt,
+                'device_type' => 'ESP32',
+                'is_processed' => false,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
 
-            // 分析行程（智慧判斷是否開始/結束行程）
-            $tripInfo = $this->analyzeTrip($user->id, $gpsRecord);
-
-            // 記錄電池電量（可以加入設備狀態表）
+            // 記錄設備狀態（電池電量等）
             if (isset($validated['battery_level'])) {
-                $this->updateDeviceStatus($validated['device_id'], $validated['battery_level']);
+                $this->logDeviceStatus($validated['device_id'], $validated['battery_level']);
             }
 
             return response()->json([
                 'success' => true,
-                'message' => 'GPS 資料已成功儲存',
+                'message' => 'GPS資料已成功儲存',
                 'data' => [
-                    'id' => $gpsRecord->id,
+                    'id' => $gpsTrackId,
                     'device_id' => $validated['device_id'],
-                    'recorded_at' => $gpsRecord->recorded_at->toISOString(),
+                    'user_id' => $userId,
+                    'recorded_at' => $recordedAt,
                     'battery_level' => $validated['battery_level'] ?? null,
-                    'trip_info' => $tripInfo,
                 ]
             ], 200);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
-            \Log::error('GPS API Validation Error:', $e->errors());
+            Log::error('GPS API Validation Error:', $e->errors());
             return response()->json([
                 'success' => false,
-                'message' => '資料驗證失敗',
+                'message' => '資料格式錯誤',
                 'errors' => $e->errors()
             ], 422);
 
         } catch (\Exception $e) {
-            \Log::error('GPS API Error:', ['message' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('GPS API Error:', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => '儲存資料時發生錯誤',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : '內部伺服器錯誤'
             ], 500);
         }
     }
 
-    private function getUserByDeviceId($deviceId)
+    /**
+     * 測試端點
+     */
+    public function test(Request $request)
     {
-        // 暫時使用固定映射，您可以建立 device_users 表來管理
+        Log::info('GPS Test Endpoint Called:', $request->all());
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'GPS測試端點正常運作',
+            'received_data' => $request->all(),
+            'server_time' => now()->toISOString(),
+        ]);
+    }
+
+    /**
+     * 根據設備ID獲取用戶ID
+     */
+    private function getUserIdFromDevice($deviceId)
+    {
+        // 設備與用戶的映射關係
         $deviceUserMapping = [
-            'ESP32_CARBON_001' => 'user@example.com',
+            'ESP32_CARBON_001' => 1, // 假設用戶ID為1
+            'ESP32_CARBON_002' => 2,
             // 可以加入更多設備映射
         ];
 
-        if (isset($deviceUserMapping[$deviceId])) {
-            return User::where('email', $deviceUserMapping[$deviceId])->first();
+        // 如果有專門的設備管理表，可以查詢資料庫
+        // return DB::table('device_users')->where('device_id', $deviceId)->value('user_id');
+
+        return $deviceUserMapping[$deviceId] ?? null;
+    }
+
+    /**
+     * 解析時間戳
+     */
+    private function parseTimestamp($timestamp)
+    {
+        if (empty($timestamp)) {
+            return now();
         }
 
-        return null;
-    }
-
-    private function updateDeviceStatus($deviceId, $batteryLevel)
-    {
-        // 可以建立 device_status 表來記錄設備狀態
-        // 暫時記錄到 log
-        \Log::info("Device Status Update: {$deviceId} - Battery: {$batteryLevel}%");
-    }
-
-    private function analyzeTrip($userId, $gpsRecord)
-    {
-        // 檢查是否有進行中的行程
-        $activeTrip = Trip::where('user_id', $userId)
-            ->whereNull('end_time')
-            ->latest('start_time')
-            ->first();
-
-        if ($activeTrip) {
-            return $this->checkTripEnd($activeTrip, $gpsRecord);
-        } else {
-            return $this->checkTripStart($userId, $gpsRecord);
-        }
-    }
-
-    private function checkTripStart($userId, $gpsRecord)
-    {
-        // 檢查最近的 GPS 記錄
-        $lastRecord = GpsRecord::where('user_id', $userId)
-            ->where('id', '!=', $gpsRecord->id)
-            ->latest('recorded_at')
-            ->first();
-
-        if ($lastRecord) {
-            $distance = $this->calculateDistance(
-                $lastRecord->latitude, 
-                $lastRecord->longitude,
-                $gpsRecord->latitude, 
-                $gpsRecord->longitude
-            );
-
-            // 如果移動距離超過 100 公尺，開始新行程
-            if ($distance > 0.1) {
-                $trip = Trip::create([
-                    'user_id' => $userId,
-                    'start_time' => $gpsRecord->recorded_at,
-                    'start_latitude' => $gpsRecord->latitude,
-                    'start_longitude' => $gpsRecord->longitude,
-                    'transport_mode' => 'unknown',
-                    'trip_type' => $this->determineTripType($gpsRecord),
-                ]);
-
-                return [
-                    'action' => 'trip_started',
-                    'trip_id' => $trip->id,
-                    'distance_from_last' => $distance
-                ];
+        try {
+            // 嘗試解析ESP32傳送的時間格式
+            if (is_numeric($timestamp)) {
+                // 如果是Unix時間戳或毫秒
+                return Carbon::createFromTimestamp($timestamp);
             }
+            
+            // 嘗試解析字串格式
+            return Carbon::parse($timestamp);
+            
+        } catch (\Exception $e) {
+            Log::warning('Failed to parse timestamp: ' . $timestamp, ['error' => $e->getMessage()]);
+            return now();
         }
-
-        return ['action' => 'no_trip_change'];
     }
 
-    private function checkTripEnd($trip, $gpsRecord)
+    /**
+     * 記錄設備狀態
+     */
+    private function logDeviceStatus($deviceId, $batteryLevel)
     {
-        $timeDiff = $gpsRecord->recorded_at->diffInMinutes($trip->start_time);
-        
-        // 如果行程時間超過 5 分鐘，考慮結束行程
-        if ($timeDiff > 5) {
-            $distance = $this->calculateDistance(
-                $trip->start_latitude,
-                $trip->start_longitude,
-                $gpsRecord->latitude,
-                $gpsRecord->longitude
+        try {
+            // 可以建立專門的設備狀態表
+            DB::table('device_status')->updateOrInsert(
+                ['device_id' => $deviceId],
+                [
+                    'battery_level' => $batteryLevel,
+                    'last_seen' => now(),
+                    'updated_at' => now(),
+                ]
             );
-
-            // 結束行程
-            $trip->update([
-                'end_time' => $gpsRecord->recorded_at,
-                'end_latitude' => $gpsRecord->latitude,
-                'end_longitude' => $gpsRecord->longitude,
-                'distance' => $distance,
-            ]);
-
-            // 分析交通工具和碳排放
-            $this->analyzeAndSaveCarbonEmission($trip);
-
-            return [
-                'action' => 'trip_ended',
-                'trip_id' => $trip->id,
-                'distance' => $distance,
-                'duration' => $timeDiff
-            ];
-        }
-
-        return [
-            'action' => 'trip_continuing',
-            'trip_id' => $trip->id,
-            'duration' => $timeDiff
-        ];
-    }
-
-    private function determineTripType($gpsRecord)
-    {
-        // 簡單的時間判斷邏輯
-        $hour = $gpsRecord->recorded_at->hour;
-        
-        if ($hour >= 7 && $hour <= 10) {
-            return 'to_work';
-        } elseif ($hour >= 17 && $hour <= 20) {
-            return 'from_work';
-        }
-        
-        return 'other';
-    }
-
-    private function analyzeAndSaveCarbonEmission($trip)
-    {
-        $duration = $trip->start_time->diffInMinutes($trip->end_time);
-        
-        if ($duration > 0 && $trip->distance > 0) {
-            $analysis = $this->analysisService->analyzeTransport($trip->distance, $duration);
-            
-            $trip->update(['transport_mode' => $analysis['transport_mode']]);
-            
-            CarbonEmission::create([
-                'user_id' => $trip->user_id,
-                'trip_id' => $trip->id,
-                'emission_date' => $trip->start_time->toDateString(),
-                'transport_mode' => $analysis['transport_mode'],
-                'distance' => $trip->distance,
-                'co2_emission' => $analysis['co2_emission'],
-            ]);
+        } catch (\Exception $e) {
+            // 如果設備狀態表不存在，只記錄到日誌
+            Log::info("Device Status: {$deviceId} - Battery: {$batteryLevel}%");
         }
     }
 
-    private function calculateDistance($lat1, $lon1, $lat2, $lon2)
+    /**
+     * 獲取最新的GPS記錄
+     */
+    public function getLatest(Request $request)
     {
-        $earthRadius = 6371; // 地球半徑 (公里)
+        $userId = $request->input('user_id', 1);
         
-        $dLat = deg2rad($lat2 - $lat1);
-        $dLon = deg2rad($lon2 - $lon1);
-        
-        $a = sin($dLat/2) * sin($dLat/2) + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon/2) * sin($dLon/2);
-        $c = 2 * atan2(sqrt($a), sqrt(1-$a));
-        
-        return $earthRadius * $c;
-    }
+        $latestRecord = DB::table('gps_tracks')
+            ->where('user_id', $userId)
+            ->orderBy('recorded_at', 'desc')
+            ->first();
 
-    public function test()
-    {
         return response()->json([
             'success' => true,
-            'message' => 'GPS API 正常運作',
-            'server_time' => now()->toISOString(),
-            'endpoints' => [
-                'gps_data' => url('/api/gps'),
-                'test' => url('/api/gps/test')
-            ]
+            'data' => $latestRecord
         ]);
+    }
+
+    /**
+     * 根據日期範圍獲取GPS記錄
+     */
+    public function getByDateRange(Request $request)
+    {
+        $validated = $request->validate([
+            'user_id' => 'required|integer',
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after_or_equal:start_date',
+        ]);
+
+        $records = DB::table('gps_tracks')
+            ->where('user_id', $validated['user_id'])
+            ->whereBetween('recorded_at', [
+                $validated['start_date'] . ' 00:00:00',
+                $validated['end_date'] . ' 23:59:59'
+            ])
+            ->orderBy('recorded_at')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $records,
+            'count' => $records->count()
+        ]);
+    }
+
+    /**
+     * 批次儲存GPS資料
+     */
+    public function storeBatch(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'device_id' => 'required|string',
+                'gps_data' => 'required|array',
+                'gps_data.*.latitude' => 'required|numeric|between:-90,90',
+                'gps_data.*.longitude' => 'required|numeric|between:-180,180',
+                'gps_data.*.speed' => 'nullable|numeric|min:0',
+                'gps_data.*.timestamp' => 'nullable|string',
+            ]);
+
+            $userId = $this->getUserIdFromDevice($validated['device_id']);
+            
+            if (!$userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '未找到對應的用戶'
+                ], 404);
+            }
+
+            $insertData = [];
+            foreach ($validated['gps_data'] as $gpsRecord) {
+                $insertData[] = [
+                    'user_id' => $userId,
+                    'latitude' => $gpsRecord['latitude'],
+                    'longitude' => $gpsRecord['longitude'],
+                    'speed' => $gpsRecord['speed'] ?? 0,
+                    'recorded_at' => $this->parseTimestamp($gpsRecord['timestamp'] ?? null),
+                    'device_type' => 'ESP32',
+                    'is_processed' => false,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            }
+
+            DB::table('gps_tracks')->insert($insertData);
+
+            Log::info("Batch GPS data saved: {$validated['device_id']}, " . count($insertData) . " records");
+
+            return response()->json([
+                'success' => true,
+                'message' => '批次GPS資料已成功儲存',
+                'count' => count($insertData)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Batch GPS API Error:', ['message' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => '批次儲存資料時發生錯誤'
+            ], 500);
+        }
     }
 }

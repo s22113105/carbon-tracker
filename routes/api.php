@@ -25,6 +25,8 @@ Route::middleware('api')->group(function () {
     Route::get('/gps/test', [GpsController::class, 'test']); // 測試用
 });
 
+Route::post('/gps', [App\Http\Controllers\Api\GpsController::class, 'store']);
+
 // routes/api.php
 Route::post('/gps', function(Request $request) {
     // 先簡單儲存GPS資料，暫不處理複雜關聯
