@@ -77,6 +77,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/statistics/export/{type}', [StatisticsController::class, 'exportData'])->name('statistics.export');
     Route::get('/statistics/export-advanced', [StatisticsController::class, 'exportAdvancedReport'])->name('statistics.export-advanced');
     
+    
     // 地理圍欄設定
     Route::get('/geofence', [AdminGeofenceController::class, 'index'])->name('geofence');
     Route::post('/geofence', [AdminGeofenceController::class, 'store'])->name('geofence.store');
@@ -102,6 +103,14 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/settings/system-info', [AdminSettingsController::class, 'getSystemInfo'])->name('settings.system-info');
     Route::get('/settings/logs', [AdminSettingsController::class, 'getLogs'])->name('settings.logs');
     Route::delete('/settings/clear-logs', [AdminSettingsController::class, 'clearLogs'])->name('settings.clear-logs');
+
+    // 加入設備管理路由
+    Route::get('/devices', [App\Http\Controllers\Admin\DeviceController::class, 'index'])->name('devices');
+    Route::get('/device/{id}', [App\Http\Controllers\Admin\DeviceController::class, 'show'])->name('device');
+});
+// 修復 admin.statistics 路由
+Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('/statistics', [App\Http\Controllers\Admin\StatisticsController::class, 'index'])->name('statistics');
 });
 
 // ===== 一般使用者路由群組 =====
@@ -366,6 +375,18 @@ Route::middleware(['auth'])->prefix('user')->name('user.')->group(function () {
 
         Route::get('/user/carbon/ai-analyses', [CarbonEmissionController::class, 'aiAnalyses'])->name('user.carbon.aiAnalyses');
     });
+});
+
+// 管理員設備管理
+Route::middleware(['auth', 'admin'])->prefix('admin')->group(function () {
+    Route::get('/devices', [App\Http\Controllers\Admin\DeviceController::class, 'index'])->name('admin.devices');
+});
+Route::get('/devices', [App\Http\Controllers\Admin\DeviceController::class, 'index'])->name('devices');
+
+// API 路由
+Route::middleware(['auth'])->prefix('api')->group(function () {
+    Route::post('/devices', [App\Http\Controllers\Admin\DeviceController::class, 'store']);
+    Route::delete('/devices/{deviceId}', [App\Http\Controllers\Admin\DeviceController::class, 'destroy']);
 });
 
 // ===== 錯誤處理路由 =====

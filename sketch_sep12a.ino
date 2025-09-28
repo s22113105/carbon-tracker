@@ -8,6 +8,7 @@
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 #include <TinyGPS++.h>
+#include <time.h>  // 加入時間庫
 
 // 硬體針腳定義
 #define GPS_RX_PIN 4
@@ -18,10 +19,15 @@
 #define STATUS_LED_PIN 26
 #define BATTERY_PIN 36
 
+// NTP 伺服器設定
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 28800;  // 台灣時區 GMT+8
+const int   daylightOffset_sec = 0;
+
 // 網路設定
-const char* ssid = "penguin";
-const char* password = "0965404559";
-const char* serverURL = "http://10.128.79.215:8000/api/gps";
+const char* ssid = "807";
+const char* password = "00807807";
+const char* serverURL = "http://192.168.1.101:8000/api/gps";
 const char* deviceID = "ESP32_CARBON_001";
 
 // 物件初始化
@@ -177,35 +183,55 @@ void powerOff() {
   Serial.println("系統已關機");
 }
 
+// 在 initializeSystems() 函數中加入
 void initializeSystems() {
-  Serial.println("初始化系統組件...");
-  
-  // 初始化GPS
-  gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
-  delay(1000);
-  gpsSerial.println("$PMTK220,1000*1F"); // 1Hz更新率
-  
-  // 初始化WiFi
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  
-  Serial.print("連接WiFi");
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    state.wifiConnected = true;
-    Serial.println("\nWiFi連接成功");
-    Serial.println("IP: " + WiFi.localIP().toString());
-    uploadOfflineData(); // 上傳離線資料
-  } else {
-    Serial.println("\nWiFi連接失敗");
-    state.wifiConnected = false;
-  }
+    Serial.println("初始化系統組件...");
+    
+    // 初始化GPS
+    gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+    delay(1000);
+    gpsSerial.println("$PMTK220,1000*1F");
+    
+    // 初始化WiFi
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    
+    Serial.print("連接WiFi");
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+        state.wifiConnected = true;
+        Serial.println("\nWiFi連接成功");
+        Serial.println("IP: " + WiFi.localIP().toString());
+        
+        // 同步 NTP 時間
+        configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+        Serial.println("等待 NTP 時間同步...");
+        
+        struct tm timeinfo;
+        if (getLocalTime(&timeinfo)) {
+            Serial.println("時間同步成功！");
+            Serial.printf("現在時間: %04d-%02d-%02d %02d:%02d:%02d\n",
+                timeinfo.tm_year + 1900,
+                timeinfo.tm_mon + 1,
+                timeinfo.tm_mday,
+                timeinfo.tm_hour,
+                timeinfo.tm_min,
+                timeinfo.tm_sec);
+        } else {
+            Serial.println("時間同步失敗");
+        }
+        
+        uploadOfflineData();
+    } else {
+        Serial.println("\nWiFi連接失敗");
+        state.wifiConnected = false;
+    }
 }
 
 // 主系統運行
@@ -301,47 +327,72 @@ GPSData readGPS() {
   return data;
 }
 
+// 修改 getTimestamp 函數
 String getTimestamp() {
-  if (gps.time.isValid() && gps.date.isValid()) {
-    return String(gps.date.year()) + "-" + 
-           String(gps.date.month()) + "-" + 
-           String(gps.date.day()) + " " +
-           String(gps.time.hour()) + ":" + 
-           String(gps.time.minute()) + ":" + 
-           String(gps.time.second());
-  }
-  return String(millis());
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        char buffer[30];
+        strftime(buffer, 30, "%Y-%m-%d %H:%M:%S", &timeinfo);
+        return String(buffer);
+    }
+    
+    // 如果 NTP 失敗，使用 GPS 時間
+    if (gps.time.isValid() && gps.date.isValid()) {
+        char buffer[30];
+        sprintf(buffer, "%04d-%02d-%02d %02d:%02d:%02d",
+            gps.date.year(),
+            gps.date.month(),
+            gps.date.day(),
+            gps.time.hour() + 8,  // 加上時區偏移
+            gps.time.minute(),
+            gps.time.second());
+        return String(buffer);
+    }
+    
+    // 最後選擇：返回空字串，讓伺服器使用自己的時間
+    return "";
 }
 
 // 資料傳送
+// 修改 sendToServer 函數
 bool sendToServer(GPSData gpsData) {
-  if (!state.wifiConnected) return false;
-  
-  HTTPClient http;
-  http.setTimeout(8000); // 8秒超時
-  http.begin(serverURL);
-  http.addHeader("Content-Type", "application/json");
-  
-  String json = "{";
-  json += "\"device_id\":\"" + String(deviceID) + "\",";
-  json += "\"latitude\":" + String(gpsData.latitude, 6) + ",";
-  json += "\"longitude\":" + String(gpsData.longitude, 6) + ",";
-  json += "\"speed\":" + String(gpsData.speed, 1) + ",";
-  json += "\"timestamp\":\"" + gpsData.timestamp + "\",";
-  json += "\"battery_level\":" + String(state.batteryLevel);
-  json += "}";
-  
-  int responseCode = http.POST(json);
-  bool success = (responseCode >= 200 && responseCode < 300);
-  
-  if (success) {
-    Serial.println("資料上傳成功");
-  } else {
-    Serial.printf("上傳失敗，回應碼: %d\n", responseCode);
-  }
-  
-  http.end();
-  return success;
+    if (!state.wifiConnected) return false;
+    
+    HTTPClient http;
+    http.setTimeout(8000);
+    http.begin(serverURL);
+    http.addHeader("Content-Type", "application/json");
+    
+    String json = "{";
+    json += "\"device_id\":\"" + String(deviceID) + "\",";
+    json += "\"latitude\":" + String(gpsData.latitude, 6) + ",";
+    json += "\"longitude\":" + String(gpsData.longitude, 6) + ",";
+    json += "\"speed\":" + String(gpsData.speed, 1) + ",";
+    
+    // 只在有有效時間戳時才傳送
+    String timestamp = getTimestamp();
+    if (timestamp != "") {
+        json += "\"timestamp\":\"" + timestamp + "\",";
+    }
+    
+    json += "\"battery_level\":" + String(state.batteryLevel);
+    json += "}";
+    
+    Serial.println("發送資料: " + json);
+    
+    int responseCode = http.POST(json);
+    bool success = (responseCode >= 200 && responseCode < 300);
+    
+    if (success) {
+        Serial.println("資料上傳成功");
+        String response = http.getString();
+        Serial.println("伺服器回應: " + response);
+    } else {
+        Serial.printf("上傳失敗，回應碼: %d\n", responseCode);
+    }
+    
+    http.end();
+    return success;
 }
 
 // 離線資料管理

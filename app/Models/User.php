@@ -46,7 +46,7 @@ class User extends Authenticatable
 
     public function carbonEmissions()
     {
-        return $this->hasMany(CarbonEmission::class);
+        return $this->hasMany(CarbonEmissionAnalysis::class);
     }
 
     /**

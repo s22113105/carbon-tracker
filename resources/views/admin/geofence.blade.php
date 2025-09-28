@@ -21,6 +21,11 @@
         </a>
     </li>
     <li class="nav-item">
+        <a class="nav-link" href="{{ route('admin.devices') }}">
+            <i class="fas fa-cog me-2"></i>設備統計
+        </a>
+    </li>
+    <li class="nav-item">
         <a class="nav-link active" href="{{ route('admin.geofence') }}">
             <i class="fas fa-map-marked-alt me-2"></i>地理圍欄設定
         </a>

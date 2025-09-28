@@ -6,6 +6,7 @@ use Livewire\Component;
 use Livewire\WithPagination;
 use App\Models\User;
 use App\Models\CarbonEmission;
+use App\Models\CarbonEmissionAnalysis;
 use App\Models\Trip;
 use Illuminate\Support\Facades\Log;
 
@@ -155,7 +156,7 @@ class UserManagement extends Component
 
     public function getUserStats($userId)
     {
-        $totalEmission = CarbonEmission::where('user_id', $userId)->sum('co2_emission');
+        $totalEmission = CarbonEmissionAnalysis::where('user_id', $userId)->sum('carbon_emission');
         $totalTrips = Trip::where('user_id', $userId)->count();
         $lastActivity = Trip::where('user_id', $userId)->latest('start_time')->first();
         

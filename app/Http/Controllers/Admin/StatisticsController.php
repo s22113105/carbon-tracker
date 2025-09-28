@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\CarbonEmission;
+use App\Models\CarbonEmissionAnalysis;
 use App\Models\Trip;
 use App\Models\GpsRecord;
 use Illuminate\Http\Request;
@@ -20,7 +21,7 @@ class StatisticsController extends Controller
         $totalStats = [
             'total_users' => User::count(),
             'total_trips' => Trip::count(),
-            'total_emissions' => round(CarbonEmission::sum('co2_emission'), 2),
+            'total_emissions' => round(CarbonEmissionAnalysis::sum('carbon_emission'), 2),
             'total_distance' => round(Trip::sum('distance') / 1000, 1),
             'active_users_today' => User::whereHas('trips', function ($query) {
                 $query->whereDate('created_at', today());
@@ -34,13 +35,13 @@ class StatisticsController extends Controller
         $monthlyStats = [
             'current' => [
                 'trips' => Trip::whereBetween('created_at', [$currentMonth, Carbon::now()])->count(),
-                'emissions' => round(CarbonEmission::whereBetween('emission_date', [$currentMonth, Carbon::now()])->sum('co2_emission'), 2),
+                'emissions' => round(CarbonEmissionAnalysis::whereBetween('analysis_date', [$currentMonth, Carbon::now()])->sum('carbon_emission'), 2),
                 'distance' => round(Trip::whereBetween('created_at', [$currentMonth, Carbon::now()])->sum('distance') / 1000, 1),
                 'users' => User::whereBetween('created_at', [$currentMonth, Carbon::now()])->count()
             ],
             'last' => [
                 'trips' => Trip::whereBetween('created_at', [$lastMonth, $currentMonth])->count(),
-                'emissions' => round(CarbonEmission::whereBetween('emission_date', [$lastMonth, $currentMonth])->sum('co2_emission'), 2),
+                'emissions' => round(CarbonEmissionAnalysis::whereBetween('analysis_date', [$lastMonth, $currentMonth])->sum('carbon_emission'), 2),
                 'distance' => round(Trip::whereBetween('created_at', [$lastMonth, $currentMonth])->sum('distance') / 1000, 1),
                 'users' => User::whereBetween('created_at', [$lastMonth, $currentMonth])->count()
             ]
@@ -54,7 +55,7 @@ class StatisticsController extends Controller
                 'date' => $date->format('Y-m-d'),
                 'date_formatted' => $date->format('m/d'),
                 'trips' => Trip::whereDate('created_at', $date)->count(),
-                'emissions' => round(CarbonEmission::whereDate('emission_date', $date)->sum('co2_emission'), 2)
+                'emissions' => round(CarbonEmissionAnalysis::whereDate('analysis_date', $date)->sum('carbon_emission'), 2)
             ]);
         }
 
@@ -66,9 +67,9 @@ class StatisticsController extends Controller
             ->groupBy('transport_mode')
             ->get()
             ->map(function ($trip) {
-                $totalEmission = CarbonEmission::whereHas('trip', function ($query) use ($trip) {
+                $totalEmission = CarbonEmissionAnalysis::whereHas('trip', function ($query) use ($trip) {
                     $query->where('transport_mode', $trip->transport_mode);
-                })->sum('co2_emission');
+                })->sum('carbon_emission');
 
                 return [
                     'mode' => $this->getTransportModeName($trip->transport_mode),
@@ -87,7 +88,7 @@ class StatisticsController extends Controller
             ->limit(10)
             ->get()
             ->map(function ($user) {
-                $totalEmissions = $user->carbonEmissions->sum('co2_emission');
+                $totalEmissions = $user->carbonEmissions->sum('carbon_emission');
                 $daysSinceRegistration = max(1, $user->created_at->diffInDays(now()));
                 
                 return [
@@ -153,7 +154,7 @@ class StatisticsController extends Controller
                     'Registration Date' => $user->created_at->format('Y-m-d'),
                     'Total Trips' => $user->trips->count(),
                     'Total Distance (km)' => number_format($user->trips->sum('distance') / 1000, 2),
-                    'Total CO2 Emission (kg)' => number_format($user->carbonEmissions->sum('co2_emission'), 3),
+                    'Total CO2 Emission (kg)' => number_format($user->carbonEmissions->sum('carbon_emission'), 3),
                     'Last Activity' => $user->updated_at->format('Y-m-d H:i:s'),
                 ];
             });
@@ -166,17 +167,17 @@ class StatisticsController extends Controller
      */
     private function exportEmissions()
     {
-        $emissions = CarbonEmission::with(['user', 'trip'])
-            ->orderBy('emission_date', 'desc')
+        $emissions = CarbonEmissionAnalysis::with(['user', 'trip'])
+            ->orderBy('analysis_date', 'desc')
             ->get()
             ->map(function ($emission) {
                 return [
-                    'Date' => $emission->emission_date->format('Y-m-d'),
+                    'Date' => $emission->analysis_date->format('Y-m-d'),
                     'User Name' => $emission->user->name,
                     'Email' => $emission->user->email,
                     'Transport Mode' => $this->getTransportModeNameEn($emission->transport_mode),
                     'Distance (km)' => number_format($emission->distance / 1000, 2),
-                    'CO2 Emission (kg)' => number_format($emission->co2_emission, 3),
+                    'CO2 Emission (kg)' => number_format($emission->carbon_emission, 3),
                     'AI Suggestion' => $emission->ai_suggestion ?? 'None',
                 ];
             });
@@ -205,7 +206,7 @@ class StatisticsController extends Controller
                     'Transport Mode' => $this->getTransportModeNameEn($trip->transport_mode),
                     'Trip Type' => $this->getTripTypeNameEn($trip->trip_type),
                     'CO2 Emission (kg)' => $trip->carbonEmission 
-                        ? number_format($trip->carbonEmission->co2_emission, 3) 
+                        ? number_format($trip->carbonEmission->carbon_emission, 3) 
                         : 'Not calculated',
                 ];
             });
@@ -278,7 +279,7 @@ class StatisticsController extends Controller
             ],
             [
                 'Metric' => 'Total CO2 Emission',
-                'Value' => number_format(CarbonEmission::whereBetween('emission_date', [$dateFrom, $dateTo])->sum('co2_emission'), 3),
+                'Value' => number_format(CarbonEmissionAnalysis::whereBetween('analysis_date', [$dateFrom, $dateTo])->sum('carbon_emission'), 3),
                 'Unit' => 'kg',
                 'Period' => $dateFrom->format('Y-m-d') . ' to ' . $dateTo->format('Y-m-d')
             ],
@@ -290,7 +291,7 @@ class StatisticsController extends Controller
             ],
             [
                 'Metric' => 'Average CO2 per Trip',
-                'Value' => number_format(CarbonEmission::whereBetween('emission_date', [$dateFrom, $dateTo])->avg('co2_emission'), 3),
+                'Value' => number_format(CarbonEmissionAnalysis::whereBetween('analysis_date', [$dateFrom, $dateTo])->avg('carbon_emission'), 3),
                 'Unit' => 'kg/trip',
                 'Period' => $dateFrom->format('Y-m-d') . ' to ' . $dateTo->format('Y-m-d')
             ],
