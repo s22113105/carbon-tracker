@@ -1,574 +1,412 @@
-@extends('layouts.dashboard')
-
-@section('title', '通勤路線地圖')
-
-@section('sidebar-title', '個人功能')
-
-@section('sidebar-menu')
-    <li class="nav-item">
-        <a class="nav-link" href="{{ route('user.dashboard') }}">
-            <i class="fas fa-home me-2"></i>個人儀表板
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" href="{{ route('user.charts') }}">
-            <i class="fas fa-chart-bar me-2"></i>每月/每日通勤碳排統計圖表
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link active" href="{{ route('user.map') }}">
-            <i class="fas fa-map-marked-alt me-2"></i>地圖顯示通勤路線
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" href="{{ route('user.attendance') }}">
-            <i class="fas fa-clock me-2"></i>打卡紀錄
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" href="{{ route('user.realtime') }}">
-            <i class="fas fa-sync-alt me-2"></i>即時儀表板
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" href="{{ route('user.carbon.aiAnalyses') }}">
-            <i class="fas fa-lightbulb me-2"></i>AI 碳排放分析
-        </a>
-    </li>
-@endsection
-
-@section('content')
-<div class="row mb-4">
-    <div class="col-md-12">
-        <h1>通勤路線地圖</h1>
-        <p class="text-muted">查看您的 GPS 軌跡和通勤路線，分析行程模式</p>
+<div>
+    <!-- 載入指示器 -->
+    <div wire:loading class="d-flex justify-content-center mb-3">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">載入中...</span>
+        </div>
     </div>
-</div>
 
-@livewire('user.route-map')
+    <!-- 成功/錯誤訊息 -->
+    @if (session()->has('message'))
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="fas fa-check-circle me-2"></i>{{ session('message') }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    @endif
 
-<!-- Leaflet CSS -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    @if (session()->has('error'))
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>{{ session('error') }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    @endif
 
-<!-- Leaflet JS -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- ESP32即時狀態顯示 -->
+    @if(!empty($realTimeStatus['device_status']))
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="card border-{{ $realTimeStatus['device_status']['status'] === 'online' ? 'success' : 'warning' }}">
+                    <div class="card-body py-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-microchip me-2 text-{{ $realTimeStatus['device_status']['status'] === 'online' ? 'success' : 'warning' }}"></i>
+                                <strong>ESP32設備狀態：</strong>
+                                <span class="badge bg-{{ $realTimeStatus['device_status']['status'] === 'online' ? 'success' : 'warning' }} ms-2">
+                                    {{ $realTimeStatus['device_status']['last_seen'] }}
+                                </span>
+                            </div>
+                            @if(!empty($realTimeStatus['latest_gps']))
+                                <small class="text-muted">
+                                    最後位置更新：{{ $realTimeStatus['latest_gps']['minutes_ago'] }} 分鐘前
+                                </small>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 
-<script>
-// 防止重複載入
-if (window.mapManagerLoaded) {
-    console.log('地圖管理器已載入，跳過重複載入');
-} else {
-    window.mapManagerLoaded = true;
-
-// 全域地圖管理器
-window.mapManager = {
-    map: null,
-    routeLayer: null,
-    markersLayer: null,
-    universityMarker: null,
-    isInitialized: false,
-    isInitializing: false,
-    initAttempts: 0,
-    maxInitAttempts: 5,
-    
-    // 樹德科技大學座標
-    university: {
-        lat: 22.7632,
-        lng: 120.3757,
-        zoom: 15
-    },
-    
-    // 安全地獲取元素屬性
-    safeGetProperty: function(element, property) {
-        try {
-            if (!element) return 0;
-            
-            // 確保元素在 DOM 中
-            if (!document.contains(element)) {
-                console.warn('元素不在 DOM 中');
-                return 0;
-            }
-            
-            // 確保元素可見
-            if (element.style.display === 'none') {
-                element.style.display = 'block';
-            }
-            
-            // 安全地獲取屬性
-            const value = element[property];
-            return value || 0;
-            
-        } catch (error) {
-            console.warn(`無法獲取屬性 ${property}:`, error);
-            return 0;
-        }
-    },
-    
-    // 強制確保元素有尺寸
-    ensureElementSize: function(element) {
-        if (!element) return false;
-        
-        try {
-            // 設定基本樣式
-            element.style.display = 'block';
-            element.style.visibility = 'visible';
-            
-            // 如果沒有寬度，設定寬度
-            if (this.safeGetProperty(element, 'offsetWidth') === 0) {
-                element.style.width = '100%';
-                console.log('設定元素寬度為 100%');
-            }
-            
-            // 如果沒有高度，設定高度
-            if (this.safeGetProperty(element, 'offsetHeight') === 0) {
-                element.style.height = '500px';
-                console.log('設定元素高度為 500px');
-            }
-            
-            // 強制重新計算佈局
-            element.offsetHeight; // 觸發重新計算
-            
-            return this.safeGetProperty(element, 'offsetWidth') > 0 && 
-                   this.safeGetProperty(element, 'offsetHeight') > 0;
-                   
-        } catch (error) {
-            console.error('確保元素尺寸時發生錯誤:', error);
-            return false;
-        }
-    },
-    
-    // 等待元素準備就緒
-    waitForElement: function(selector, timeout = 15000) {
-        return new Promise((resolve, reject) => {
-            const startTime = Date.now();
-            let attempts = 0;
-            const maxAttempts = Math.floor(timeout / 200);
-            
-            const checkElement = () => {
-                attempts++;
-                
-                try {
-                    const element = document.querySelector(selector);
+    <!-- 控制面板 -->
+    <div class="row mb-4">
+        <!-- 日期選擇和控制 -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header bg-primary text-white">
+                    <h6 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>日期控制</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="dateSelect" class="form-label">選擇日期</label>
+                        <input type="date" 
+                               id="dateSelect"
+                               class="form-control" 
+                               wire:model.live="selectedDate" 
+                               max="{{ date('Y-m-d') }}">
+                    </div>
                     
-                    if (element) {
-                        console.log(`找到元素 ${selector}，嘗試確保尺寸...`);
+                    <!-- ESP32控制按鈕 -->
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-success btn-sm" 
+                                wire:click="syncEsp32Data" 
+                                wire:loading.attr="disabled">
+                            <i class="fas fa-sync me-1"></i>同步ESP32資料
+                        </button>
                         
-                        if (this.ensureElementSize(element)) {
-                            console.log(`元素 ${selector} 準備就緒`);
-                            resolve(element);
-                            return;
-                        }
-                    }
-                    
-                    if (attempts >= maxAttempts) {
-                        reject(new Error(`等待元素 ${selector} 超時 (${attempts} 次嘗試)`));
-                        return;
-                    }
-                    
-                    console.log(`等待元素 ${selector}... (${attempts}/${maxAttempts})`);
-                    setTimeout(checkElement, 200);
-                    
-                } catch (error) {
-                    console.error(`檢查元素 ${selector} 時發生錯誤:`, error);
-                    setTimeout(checkElement, 200);
-                }
-            };
-            
-            checkElement();
-        });
-    },
-    
-    // 安全地創建地圖
-    createMapSafely: function(element) {
-        try {
-            // 最後一次確認元素狀態
-            if (!this.ensureElementSize(element)) {
-                throw new Error('無法確保地圖容器有正確尺寸');
-            }
-            
-            console.log('創建 Leaflet 地圖實例...');
-            
-            // 創建地圖時使用更保守的選項
-            const map = L.map(element, {
-                center: [this.university.lat, this.university.lng],
-                zoom: this.university.zoom,
-                zoomControl: true,
-                attributionControl: true,
-                preferCanvas: false, // 使用 SVG 渲染，更穩定
-                fadeAnimation: false, // 禁用動畫避免計算問題
-                zoomAnimation: false,
-                markerZoomAnimation: false
-            });
-            
-            console.log('地圖實例創建成功');
-            return map;
-            
-        } catch (error) {
-            console.error('創建地圖實例時發生錯誤:', error);
-            throw error;
-        }
-    },
-    
-    // 初始化地圖
-    init: function() {
-        if (this.isInitializing) {
-            console.log('地圖正在初始化中，跳過重複初始化');
-            return Promise.resolve();
-        }
-        
-        if (this.isInitialized && this.map) {
-            console.log('地圖已經初始化完成');
-            return Promise.resolve();
-        }
-        
-        this.initAttempts++;
-        if (this.initAttempts > this.maxInitAttempts) {
-            console.error('地圖初始化超過最大嘗試次數');
-            return Promise.reject(new Error('初始化失敗'));
-        }
-        
-        this.isInitializing = true;
-        console.log(`開始初始化地圖 (第 ${this.initAttempts} 次嘗試)...`);
-        
-        return this.waitForElement('#map')
-            .then((mapElement) => {
-                console.log('地圖容器準備就緒，開始創建地圖...');
-                
-                // 清理舊實例
-                if (this.map) {
-                    try {
-                        this.map.remove();
-                    } catch (e) {
-                        console.warn('清理舊地圖實例時發生錯誤:', e);
-                    }
-                    this.map = null;
-                }
-                
-                // 創建新地圖
-                this.map = this.createMapSafely(mapElement);
-                
-                // 添加圖層
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '© OpenStreetMap contributors',
-                    maxZoom: 19
-                }).addTo(this.map);
-                
-                // 創建圖層群組
-                this.routeLayer = L.layerGroup().addTo(this.map);
-                this.markersLayer = L.layerGroup().addTo(this.map);
-                
-                // 添加大學標記
-                this.universityMarker = L.marker([this.university.lat, this.university.lng], {
-                    icon: L.divIcon({
-                        className: 'university-marker',
-                        html: '<div style="background-color: #ff6b35; color: white; border-radius: 50%; width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">樹</div>',
-                        iconSize: [25, 25]
-                    }),
-                    isPermanent: true
-                }).bindPopup('樹德科技大學').addTo(this.markersLayer);
-                
-                // 返回 Promise，在地圖完全載入後解析
-                return new Promise((resolve) => {
-                    this.map.whenReady(() => {
-                        console.log('地圖載入完成');
-                        this.isInitialized = true;
-                        this.isInitializing = false;
-                        this.initAttempts = 0; // 重置嘗試次數
+                        <button class="btn btn-info btn-sm" 
+                                wire:click="processBatchData" 
+                                wire:loading.attr="disabled">
+                            <i class="fas fa-database me-1"></i>處理離線資料
+                        </button>
                         
-                        // 最終確保正確渲染
-                        setTimeout(() => {
-                            try {
-                                if (this.map) {
-                                    this.map.invalidateSize();
-                                    console.log('地圖初始化並渲染完成');
-                                }
-                            } catch (error) {
-                                console.warn('最終渲染時發生警告:', error);
-                            }
-                            resolve();
-                        }, 300);
-                    });
-                });
-                
-            })
-            .catch((error) => {
-                console.error('地圖初始化失敗:', error);
-                this.isInitializing = false;
-                this.isInitialized = false;
-                
-                // 如果還有重試機會，稍後重試
-                if (this.initAttempts < this.maxInitAttempts) {
-                    console.log(`將在 2 秒後重試初始化 (${this.initAttempts}/${this.maxInitAttempts})`);
-                    return new Promise((resolve) => {
-                        setTimeout(() => {
-                            this.init().then(resolve).catch(() => resolve());
-                        }, 2000);
-                    });
-                }
-                
-                throw error;
-            });
-    },
-    
-    // 重置地圖
-    reset: function() {
-        console.log('重置地圖...');
+                        <button class="btn btn-outline-info btn-sm" 
+                                wire:click="analyzeTrips" 
+                                wire:loading.attr="disabled">
+                            <i class="fas fa-chart-line me-1"></i>重新分析行程
+                        </button>
+                        
+                        <button class="btn btn-outline-warning btn-sm" 
+                                wire:click="resetMap">
+                            <i class="fas fa-redo me-1"></i>重置地圖
+                        </button>
+                        
+                        @if($selectedDate === date('Y-m-d'))
+                            <button class="btn btn-outline-danger btn-sm" 
+                                    wire:click="clearTodayData" 
+                                    onclick="return confirm('確定要清除今日所有資料嗎？此操作無法復原。')"
+                                    wire:loading.attr="disabled">
+                                <i class="fas fa-trash me-1"></i>清除今日資料
+                            </button>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        </div>
         
-        if (!this.isInitialized || !this.map) {
-            console.log('地圖未初始化，重新初始化');
-            return this.init();
-        }
+        <!-- 統計資料 -->
+        <div class="col-md-8">
+            <div class="card h-100">
+                <div class="card-header bg-info text-white">
+                    <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>當日統計</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-2">
+                            <div class="border rounded p-2">
+                                <h6 class="text-success mb-1">{{ $analyticsData['esp32_points'] ?? 0 }}</h6>
+                                <small class="text-muted">ESP32原始</small>
+                            </div>
+                        </div>
+                        <div class="col-2">
+                            <div class="border rounded p-2">
+                                <h6 class="text-primary mb-1">{{ $analyticsData['gps_points'] ?? 0 }}</h6>
+                                <small class="text-muted">同步GPS點</small>
+                            </div>
+                        </div>
+                        <div class="col-2">
+                            <div class="border rounded p-2">
+                                <h6 class="text-info mb-1">{{ $analyticsData['trips_count'] ?? 0 }}</h6>
+                                <small class="text-muted">行程數</small>
+                            </div>
+                        </div>
+                        <div class="col-2">
+                            <div class="border rounded p-2">
+                                <h6 class="text-warning mb-1">{{ $analyticsData['total_distance'] ?? 0 }}km</h6>
+                                <small class="text-muted">總距離</small>
+                            </div>
+                        </div>
+                        <div class="col-2">
+                            <div class="border rounded p-2">
+                                <h6 class="text-danger mb-1">{{ $analyticsData['total_co2'] ?? 0 }}kg</h6>
+                                <small class="text-muted">CO₂排放</small>
+                            </div>
+                        </div>
+                        <div class="col-2">
+                            <div class="border rounded p-2">
+                                <h6 class="text-secondary mb-1">{{ $analyticsData['data_sync_ratio'] ?? 0 }}%</h6>
+                                <small class="text-muted">同步率</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 交通工具分布 -->
+                    @if(!empty($analyticsData['transport_modes']))
+                        <div class="mt-3">
+                            <small class="text-muted">交通工具分布：</small>
+                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                @foreach($analyticsData['transport_modes'] as $mode)
+                                    <span class="badge" style="background-color: {{ $mode['color'] }}">
+                                        {{ $mode['mode_text'] }} ({{ $mode['count'] }}次, {{ $mode['distance'] }}km)
+                                    </span>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+
+                    <!-- 即時GPS狀態 -->
+                    @if(!empty($realTimeStatus['today_stats']))
+                        <div class="mt-3 pt-2 border-top">
+                            <small class="text-muted d-block">即時狀態：</small>
+                            <div class="row text-center mt-1">
+                                <div class="col-3">
+                                    <small class="text-muted">未處理點數</small>
+                                    <div class="fw-bold text-warning">{{ $realTimeStatus['today_stats']['unprocessed_points'] }}</div>
+                                </div>
+                                <div class="col-3">
+                                    <small class="text-muted">首次記錄</small>
+                                    <div class="fw-bold">{{ $realTimeStatus['today_stats']['first_record_at'] ? \Carbon\Carbon::parse($realTimeStatus['today_stats']['first_record_at'])->format('H:i') : '--' }}</div>
+                                </div>
+                                <div class="col-3">
+                                    <small class="text-muted">最後記錄</small>
+                                    <div class="fw-bold">{{ $realTimeStatus['today_stats']['last_record_at'] ? \Carbon\Carbon::parse($realTimeStatus['today_stats']['last_record_at'])->format('H:i') : '--' }}</div>
+                                </div>
+                                <div class="col-3">
+                                    <small class="text-muted">生成行程</small>
+                                    <div class="fw-bold text-success">{{ $realTimeStatus['today_stats']['trips_generated'] }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    @endif
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 地圖和行程列表 -->
+    <div class="row">
+        <!-- 行程列表 -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="fas fa-route me-2"></i>行程列表</h6>
+                    @if(count($trips) > 0)
+                        <span class="badge bg-info">{{ count($trips) }} 筆</span>
+                    @endif
+                </div>
+                <div class="card-body p-0" style="max-height: 600px; overflow-y: auto;">
+                    @if(count($trips) > 0)
+                        @foreach($trips as $trip)
+                            <div class="trip-item p-3 border-bottom cursor-pointer {{ $selectedTrip == $trip['id'] ? 'bg-primary text-white' : 'bg-light' }}" 
+                                 wire:click="selectTrip({{ $trip['id'] }})"
+                                 style="cursor: pointer; transition: all 0.2s;">
+                                
+                                <!-- 行程標題 -->
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-clock me-2"></i>
+                                        <strong>{{ $trip['start_time'] }} - {{ $trip['end_time'] }}</strong>
+                                    </div>
+                                    <div class="d-flex gap-1">
+                                        <span class="badge" style="background-color: {{ $trip['color'] }}">
+                                            {{ $trip['transport_mode_text'] }}
+                                        </span>
+                                        @if(isset($trip['data_source']))
+                                            <span class="badge bg-{{ $trip['data_source'] === 'ESP32' ? 'success' : 'secondary' }}">
+                                                {{ $trip['data_source'] }}
+                                            </span>
+                                        @endif
+                                    </div>
+                                </div>
+                                
+                                <!-- 行程詳情 -->
+                                <div class="row small">
+                                    <div class="col-6">
+                                        <i class="fas fa-route me-1"></i>
+                                        {{ $trip['distance'] }} km
+                                    </div>
+                                    <div class="col-6">
+                                        <i class="fas fa-tachometer-alt me-1"></i>
+                                        {{ $trip['avg_speed'] }} km/h
+                                    </div>
+                                </div>
+                                
+                                <div class="row small mt-1">
+                                    <div class="col-6">
+                                        <i class="fas fa-hourglass-half me-1"></i>
+                                        {{ $trip['duration_minutes'] }} 分鐘
+                                    </div>
+                                    <div class="col-6">
+                                        <i class="fas fa-leaf me-1"></i>
+                                        {{ $trip['co2_emission'] }} kg CO₂
+                                    </div>
+                                </div>
+                                
+                                <!-- 行程類型 -->
+                                <div class="mt-2">
+                                    <span class="badge badge-outline">
+                                        <i class="fas fa-tag me-1"></i>{{ $trip['trip_type_text'] }}
+                                    </span>
+                                </div>
+                                
+                                <!-- 座標信息（小字顯示） -->
+                                <div class="mt-2 small text-muted">
+                                    起點: {{ number_format($trip['start_lat'], 4) }}, {{ number_format($trip['start_lng'], 4) }}<br>
+                                    終點: {{ number_format($trip['end_lat'], 4) }}, {{ number_format($trip['end_lng'], 4) }}
+                                </div>
+                            </div>
+                        @endforeach
+                    @else
+                        <div class="p-4 text-center text-muted">
+                            <i class="fas fa-microchip fa-2x mb-3 text-info"></i>
+                            <p class="mb-2">沒有找到行程資料</p>
+                            <small>
+                                @if(($analyticsData['esp32_points'] ?? 0) > 0)
+                                    有 {{ $analyticsData['esp32_points'] }} 筆ESP32資料，點擊「同步ESP32資料」來生成行程記錄
+                                @elseif(($analyticsData['gps_points'] ?? 0) > 0)
+                                    有 {{ $analyticsData['gps_points'] }} 筆GPS資料，點擊「重新分析行程」來生成行程記錄
+                                @else
+                                    該日期沒有GPS資料，請確認ESP32設備是否正常運作
+                                @endif
+                            </small>
+                        </div>
+                    @endif
+                </div>
+            </div>
+        </div>
         
-        try {
-            // 清除圖層
-            if (this.routeLayer) {
-                this.routeLayer.clearLayers();
-            }
-            
-            if (this.markersLayer) {
-                this.markersLayer.eachLayer((layer) => {
-                    if (!layer.options.isPermanent) {
-                        this.markersLayer.removeLayer(layer);
-                    }
-                });
-            }
-            
-            // 重置視野
-            this.map.setView([this.university.lat, this.university.lng], this.university.zoom);
-            
-            // 確保正確顯示
-            setTimeout(() => {
-                try {
-                    if (this.map) {
-                        this.map.invalidateSize();
-                    }
-                } catch (error) {
-                    console.warn('重置時渲染發生警告:', error);
-                }
-            }, 100);
-            
-            console.log('地圖重置完成');
-            return Promise.resolve();
-            
-        } catch (error) {
-            console.error('重置地圖錯誤:', error);
-            // 重新初始化
-            this.isInitialized = false;
-            return this.init();
-        }
-    },
-    
-    // 更新地圖路線
-    update: function(gpsPoints, selectedTrip) {
-        console.log('更新地圖...', {
-            pointsCount: gpsPoints?.length || 0,
-            selectedTrip: selectedTrip
-        });
-        
-        if (!this.isInitialized || !this.map) {
-            console.log('地圖未初始化，先初始化');
-            return this.init().then(() => {
-                setTimeout(() => this.update(gpsPoints, selectedTrip), 500);
-            });
-        }
-        
-        try {
-            // 清除現有路線
-            if (this.routeLayer) {
-                this.routeLayer.clearLayers();
-            }
-            
-            // 清除臨時標記
-            if (this.markersLayer) {
-                this.markersLayer.eachLayer((layer) => {
-                    if (!layer.options.isPermanent) {
-                        this.markersLayer.removeLayer(layer);
-                    }
-                });
-            }
-            
-            if (!gpsPoints || gpsPoints.length === 0) {
-                console.log('沒有 GPS 資料，重置到預設視野');
-                this.map.setView([this.university.lat, this.university.lng], this.university.zoom);
-                return;
-            }
-            
-            // 準備路線點
-            const routePoints = gpsPoints.map(point => [point.lat, point.lng]);
-            
-            // 繪製路線
-            const polyline = L.polyline(routePoints, {
-                color: '#007bff',
-                weight: 4,
-                opacity: 0.8
-            }).addTo(this.routeLayer);
-            
-            // 起點標記
-            if (routePoints.length > 0) {
-                L.marker(routePoints[0], {
-                    icon: L.divIcon({
-                        className: 'custom-marker',
-                        html: '<div style="background-color: #28a745; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px;">起</div>',
-                        iconSize: [20, 20]
-                    }),
-                    isPermanent: false
-                }).addTo(this.markersLayer);
-            }
-            
-            // 終點標記
-            if (routePoints.length > 1) {
-                L.marker(routePoints[routePoints.length - 1], {
-                    icon: L.divIcon({
-                        className: 'custom-marker',
-                        html: '<div style="background-color: #dc3545; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px;">終</div>',
-                        iconSize: [20, 20]
-                    }),
-                    isPermanent: false
-                }).addTo(this.markersLayer);
-            }
-            
-            // 調整視野
-            this.map.fitBounds(polyline.getBounds(), {
-                padding: [20, 20],
-                maxZoom: 16
-            });
-            
-            console.log('地圖更新完成');
-            
-        } catch (error) {
-            console.error('更新地圖錯誤:', error);
-        }
-    },
-    
-    // 獲取 Livewire 組件資料
-    getLivewireData: function() {
-        try {
-            const element = document.querySelector('[wire\\:id]');
-            if (!element) return null;
-            
-            const wireId = element.getAttribute('wire:id');
-            if (!wireId) return null;
-            
-            return Livewire.find(wireId);
-        } catch (error) {
-            console.error('獲取 Livewire 資料錯誤:', error);
-            return null;
-        }
-    }
-};
+        <!-- 地圖區域 -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="fas fa-map me-2"></i>通勤路線地圖</h6>
+                    @if($selectedTrip)
+                        <span class="badge bg-success">已選擇行程 #{{ $selectedTrip }}</span>
+                    @else
+                        <span class="badge bg-secondary">請選擇行程</span>
+                    @endif
+                </div>
+                <div class="card-body p-0 position-relative">
+                    <!-- 地圖容器 -->
+                    <div id="map" style="height: 600px; width: 100%;">
+                        <!-- 地圖載入提示 -->
+                        <div class="map-loading text-center">
+                            <div class="spinner-border text-primary mb-2" role="status"></div>
+                            <p class="text-muted mb-0">地圖載入中...</p>
+                        </div>
+                    </div>
+                    
+                    <!-- 地圖圖例 -->
+                    <div class="position-absolute top-0 end-0 m-3 bg-white rounded shadow-sm p-2" style="z-index: 1000;">
+                        <small class="text-muted d-block mb-1">圖例</small>
+                        <div class="d-flex flex-column gap-1">
+                            <div class="d-flex align-items-center">
+                                <div class="rounded-circle me-2" style="width: 12px; height: 12px; background-color: #28a745;"></div>
+                                <small>起點</small>
+                            </div>
+                            <div class="d-flex align-items-center">
+                                <div class="rounded-circle me-2" style="width: 12px; height: 12px; background-color: #dc3545;"></div>
+                                <small>終點</small>
+                            </div>
+                            <div class="d-flex align-items-center">
+                                <div class="rounded-circle me-2" style="width: 12px; height: 12px; background-color: #6f42c1;"></div>
+                                <small>樹德科大</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 沒有選擇行程時的提示 -->
+                    @if(!$selectedTrip && count($trips) > 0)
+                        <div class="position-absolute top-50 start-50 translate-middle text-center bg-white rounded shadow p-3" style="z-index: 1000;">
+                            <i class="fas fa-hand-pointer fa-2x text-primary mb-2"></i>
+                            <p class="mb-0 text-muted">請從左側選擇一個行程<br>來查看詳細路線</p>
+                        </div>
+                    @endif
+                </div>
+            </div>
+        </div>
+    </div>
 
-// 全域函數
-window.initMap = () => window.mapManager.init();
-window.resetMap = () => window.mapManager.reset();
-window.updateMap = (gpsPoints, selectedTrip) => window.mapManager.update(gpsPoints, selectedTrip);
-
-// 事件監聽
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM 載入完成，延遲初始化地圖...');
-    setTimeout(() => {
-        window.mapManager.init().catch(error => {
-            console.error('DOMContentLoaded 初始化失敗:', error);
-        });
-    }, 800);
-});
-
-// Livewire 事件 - 使用更安全的方式
-let livewireInitialized = false;
-
-document.addEventListener('livewire:init', function() {
-    if (livewireInitialized) return;
-    livewireInitialized = true;
-    
-    console.log('Livewire 初始化，設定事件監聽器');
-    
-    Livewire.on('tripSelected', () => {
-        setTimeout(() => {
-            const component = window.mapManager.getLivewireData();
-            if (component) {
-                window.mapManager.update(component.gpsPoints, component.selectedTrip);
-            }
-        }, 100);
-    });
-    
-    Livewire.on('mapReset', () => {
-        setTimeout(() => {
-            window.mapManager.reset();
-        }, 100);
-    });
-    
-    Livewire.on('centerToUniversity', () => {
-        setTimeout(() => {
-            if (window.mapManager.map) {
-                window.mapManager.map.setView([
-                    window.mapManager.university.lat, 
-                    window.mapManager.university.lng
-                ], window.mapManager.university.zoom);
-            }
-        }, 100);
-    });
-});
-
-// 其他事件
-document.addEventListener('livewire:navigated', () => {
-    setTimeout(() => {
-        if (!window.mapManager.isInitialized) {
-            window.mapManager.init();
-        }
-    }, 500);
-});
-
-document.addEventListener('livewire:updated', () => {
-    setTimeout(() => {
-        if (window.mapManager.map) {
-            try {
-                window.mapManager.map.invalidateSize();
-            } catch (error) {
-                console.warn('livewire:updated 渲染警告:', error);
-            }
-        } else if (!window.mapManager.isInitializing) {
-            window.mapManager.init();
-        }
-    }, 200);
-});
-
-window.addEventListener('resize', () => {
-    setTimeout(() => {
-        if (window.mapManager.map) {
-            try {
-                window.mapManager.map.invalidateSize();
-            } catch (error) {
-                console.warn('resize 渲染警告:', error);
-            }
-        }
-    }, 100);
-});
-
-} // 結束防重複載入檢查
-</script>
-
+    <!-- GPS資料詳細信息（選擇行程時顯示） -->
+    @if($selectedTrip && !empty($gpsPoints))
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-satellite me-2"></i>GPS軌跡詳細資訊</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="text-center border rounded p-2">
+                                    <h5 class="text-primary mb-1">{{ count($gpsPoints) }}</h5>
+                                    <small class="text-muted">GPS軌跡點</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center border rounded p-2">
+                                    <h5 class="text-warning mb-1">
+                                        {{ count($gpsPoints) > 0 ? \Carbon\Carbon::parse(end($gpsPoints)['time'])->format('H:i:s') : '--' }}
+                                    </h5>
+                                    <small class="text-muted">結束時間</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center border rounded p-2">
+                                    <h5 class="text-info mb-1">
+                                        {{ count($gpsPoints) > 1 ? number_format(collect($gpsPoints)->avg('speed') ?? 0, 1) : '0' }} km/h
+                                    </h5>
+                                    <small class="text-muted">平均速度</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- GPS點採樣間隔信息 -->
+                        @if(count($gpsPoints) > 1)
+                            <div class="mt-3">
+                                <small class="text-muted">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    GPS採樣間隔約 {{ number_format(\Carbon\Carbon::parse($gpsPoints[0]['time'])->diffInSeconds(\Carbon\Carbon::parse($gpsPoints[1]['time'] ?? $gpsPoints[0]['time']))) }} 秒
+                                    | 軌跡精度: {{ number_format(collect($gpsPoints)->avg('accuracy') ?? 0, 1) }} 公尺
+                                    | 資料來源: ESP32實體設備
+                                </small>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 
 <style>
-/* 原有樣式保留 */
+/* 行程項目懸停效果 */
 .trip-item:hover {
     background-color: #e9ecef !important;
+    transform: translateX(2px);
 }
 
 .trip-item.bg-primary:hover {
     background-color: #0056b3 !important;
+    transform: translateX(0px);
 }
 
+/* 地圖樣式 */
 #map {
-    border-radius: 8px;
+    border-radius: 0 0 8px 8px;
     border: 1px solid #dee2e6;
+    border-top: none;
 }
 
 .custom-marker {
-    border: none !important;
-    background: transparent !important;
-}
-
-/* 新增：大學標記樣式 */
-.university-marker {
     border: none !important;
     background: transparent !important;
 }
@@ -596,17 +434,107 @@ window.addEventListener('resize', () => {
     left: 50%;
     transform: translate(-50%, -50%);
     z-index: 1000;
-    background-color: rgba(255, 255, 255, 0.9);
+    background-color: rgba(255, 255, 255, 0.95);
     padding: 20px;
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
 }
 
-/* 確保地圖在各種設備上都能正常顯示 */
+/* Badge樣式 */
+.badge-outline {
+    background-color: transparent;
+    border: 1px solid currentColor;
+}
+
+/* ESP32狀態指示器 */
+.card.border-success {
+    border-width: 2px !important;
+}
+
+.card.border-warning {
+    border-width: 2px !important;
+}
+
+/* 統計卡片樣式 */
+.border.rounded.p-2 {
+    transition: all 0.2s;
+}
+
+.border.rounded.p-2:hover {
+    background-color: #f8f9fa;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* 響應式設計 */
 @media (max-width: 768px) {
     #map {
         height: 400px !important;
     }
+    
+    .trip-item {
+        font-size: 0.9rem;
+    }
+    
+    .col-2 {
+        margin-bottom: 0.5rem;
+    }
+}
+
+/* 游標指針 */
+.cursor-pointer {
+    cursor: pointer;
+}
+
+/* 選中的行程項目特殊樣式 */
+.trip-item.bg-primary {
+    border-left: 4px solid #fff;
+}
+
+/* ESP32徽章樣式 */
+.badge.bg-success {
+    background-color: #28a745 !important;
+}
+
+.badge.bg-secondary {
+    background-color: #6c757d !important;
+}
+
+/* 即時狀態區域 */
+.border-top {
+    border-color: #dee2e6 !important;
+}
+
+/* 按鈕載入狀態 */
+button[wire\:loading\.attr="disabled"] {
+    position: relative;
+}
+
+button[wire\:loading\.attr="disabled"]:disabled {
+    opacity: 0.7;
+}
+
+/* 動畫效果 */
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.text-success {
+    animation: pulse 2s infinite;
+}
+
+/* 數據同步率指示器 */
+.text-secondary h6 {
+    font-weight: bold;
+}
+
+/* 地圖圖例樣式 */
+.position-absolute.top-0.end-0 {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(5px);
 }
 </style>
-@endsection
+</div>
+
