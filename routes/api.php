@@ -31,6 +31,8 @@ Route::prefix('esp32')->group(function () {
     });
 });
 
+Route::post('/gps', [App\Http\Controllers\Api\GpsController::class, 'store']);
+
 // 受保護的 API 路由（需要認證）
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/gps/latest', [GpsController::class, 'getLatest']);
