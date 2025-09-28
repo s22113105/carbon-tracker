@@ -7,24 +7,20 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
+use App\Models\User;
 
 class GpsController extends Controller
 {
     /**
-     * 接收ESP32的GPS資料（公開端點）
+     * 接收ESP32的GPS資料
      */
     public function store(Request $request)
     {
         try {
-            // 記錄所有接收到的資料用於除錯
-            Log::info('ESP32 GPS Data Received:', [
-                'headers' => $request->headers->all(),
-                'body' => $request->all(),
-                'ip' => $request->ip(),
-                'method' => $request->method()
-            ]);
+            // 記錄接收到的資料
+            Log::info('ESP32 GPS Data Received:', $request->all());
             
-            // 基本資料驗證（放寬限制）
+            // 基本資料驗證
             $validated = $request->validate([
                 'device_id' => 'required|string|max:50',
                 'latitude' => 'required|numeric|between:-90,90',
@@ -34,19 +30,20 @@ class GpsController extends Controller
                 'battery_level' => 'nullable|integer|between:0,100',
             ]);
 
-            // 設備ID映射到用戶ID
+            // 從資料庫獲取設備對應的用戶ID
             $userId = $this->getUserIdFromDevice($validated['device_id']);
             
             if (!$userId) {
-                // 如果找不到對應用戶，使用預設用戶ID = 1
-                $userId = 1;
-                Log::warning("Device {$validated['device_id']} not mapped, using default user_id=1");
+                Log::error("Device not registered: {$validated['device_id']}");
+                return response()->json([
+                    'success' => false,
+                    'message' => '設備未註冊'
+                ], 404);
             }
 
             // 處理時間戳
             $recordedAt = $this->parseTimestamp($validated['timestamp'] ?? null);
 
-            // 使用事務處理確保資料一致性
             DB::beginTransaction();
             
             try {
@@ -75,7 +72,8 @@ class GpsController extends Controller
 
                 Log::info("GPS data saved successfully", [
                     'track_id' => $gpsTrackId,
-                    'device_id' => $validated['device_id']
+                    'device_id' => $validated['device_id'],
+                    'user_id' => $userId
                 ]);
 
                 return response()->json([
@@ -95,11 +93,7 @@ class GpsController extends Controller
             }
 
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::error('GPS API Validation Error:', [
-                'errors' => $e->errors(),
-                'request_data' => $request->all()
-            ]);
-            
+            Log::error('GPS API Validation Error:', $e->errors());
             return response()->json([
                 'success' => false,
                 'message' => '資料格式錯誤',
@@ -122,47 +116,23 @@ class GpsController extends Controller
     }
 
     /**
-     * 測試端點
-     */
-    public function test(Request $request)
-    {
-        return response()->json([
-            'success' => true,
-            'message' => 'GPS測試端點正常運作',
-            'server_time' => now()->toISOString(),
-            'your_ip' => $request->ip(),
-            'test_data' => [
-                'device_id' => 'ESP32_CARBON_001',
-                'latitude' => 25.033,
-                'longitude' => 121.565,
-                'speed' => 15.5,
-                'battery_level' => 85
-            ]
-        ]);
-    }
-
-    /**
-     * 根據設備ID獲取用戶ID
+     * 根據設備ID獲取用戶ID（從資料庫查詢）
      */
     private function getUserIdFromDevice($deviceId)
     {
-        // 先嘗試從資料庫查找
+        // 從 device_users 表查詢
         $mapping = DB::table('device_users')
             ->where('device_id', $deviceId)
+            ->where('is_active', true)
             ->first();
         
         if ($mapping) {
             return $mapping->user_id;
         }
         
-        // 使用硬編碼映射作為後備
-        $deviceUserMapping = [
-            'ESP32_CARBON_001' => 1,
-            'ESP32_CARBON_002' => 2,
-            'ESP32_TEST' => 1,
-        ];
-
-        return $deviceUserMapping[$deviceId] ?? null;
+        // 如果找不到，記錄錯誤
+        Log::warning("Device ID not found in database: {$deviceId}");
+        return null;
     }
 
     /**
@@ -176,15 +146,12 @@ class GpsController extends Controller
 
         try {
             if (is_numeric($timestamp)) {
-                // Unix 時間戳
                 if ($timestamp > 9999999999) {
-                    // 毫秒時間戳
                     return Carbon::createFromTimestampMs($timestamp);
                 }
                 return Carbon::createFromTimestamp($timestamp);
             }
             
-            // 嘗試解析字串格式
             return Carbon::parse($timestamp);
             
         } catch (\Exception $e) {
@@ -215,6 +182,19 @@ class GpsController extends Controller
     }
 
     /**
+     * 測試端點
+     */
+    public function test(Request $request)
+    {
+        return response()->json([
+            'success' => true,
+            'message' => 'GPS測試端點正常運作',
+            'server_time' => now()->toISOString(),
+            'your_ip' => $request->ip(),
+        ]);
+    }
+
+    /**
      * 批次儲存GPS資料
      */
     public function storeBatch(Request $request)
@@ -230,7 +210,14 @@ class GpsController extends Controller
                 'gps_data.*.battery_level' => 'nullable|integer|between:0,100',
             ]);
 
-            $userId = $this->getUserIdFromDevice($validated['device_id']) ?? 1;
+            $userId = $this->getUserIdFromDevice($validated['device_id']);
+            
+            if (!$userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '設備未註冊'
+                ], 404);
+            }
             
             DB::beginTransaction();
             
@@ -258,7 +245,6 @@ class GpsController extends Controller
 
                 DB::table('gps_tracks')->insert($insertData);
                 
-                // 更新設備狀態
                 $this->updateDeviceStatus($validated['device_id'], [
                     'battery_level' => $lastBatteryLevel,
                     'last_seen' => now(),
@@ -270,6 +256,7 @@ class GpsController extends Controller
 
                 Log::info("Batch GPS data saved", [
                     'device_id' => $validated['device_id'],
+                    'user_id' => $userId,
                     'count' => count($insertData)
                 ]);
 
