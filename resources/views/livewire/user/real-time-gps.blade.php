@@ -1,5 +1,5 @@
 <div>
-    <div wire:poll.5s="refreshData">
+    <div wire:poll.3s="refreshData">
         <!-- 設備狀態卡片 -->
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -28,100 +28,95 @@
                         <div class="col-md-3">
                             <h6>連接狀態</h6>
                             <div class="d-flex align-items-center">
-                                <div class="status-indicator bg-{{ $isOnline ? 'success' : 'secondary' }} me-2"></div>
-                                {{ $isOnline ? 'GPS 裝置在線' : 'GPS 裝置離線' }}
+                                <div class="spinner-grow spinner-grow-sm text-{{ $isOnline ? 'success' : 'secondary' }} me-2" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                {{ $isOnline ? 'ESP32 連線中' : 'ESP32 離線' }}
                             </div>
                         </div>
                     </div>
                 @else
-                    <div class="text-center py-4">
-                        <i class="fas fa-satellite-dish fa-3x text-muted mb-3"></i>
-                        <h6 class="text-muted">尚未收到 GPS 資料</h6>
-                        <p class="text-muted">請確認 ESP32 設備已連接並正常運作</p>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        尚未收到 ESP32 設備的 GPS 資料，請確認設備已連線並正在傳送資料。
                     </div>
                 @endif
             </div>
         </div>
 
-        <!-- 即時行程監控 -->
+        <!-- 最近行程記錄 -->
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0">最近行程記錄</h5>
+                <h5 class="mb-0">最近 GPS 記錄</h5>
             </div>
             <div class="card-body">
-                @if(count($recentTrips) > 0)
+                @if(count($lastFiveGps) > 0)
                     <div class="table-responsive">
-                        <table class="table table-sm">
+                        <table class="table table-hover">
                             <thead>
                                 <tr>
-                                    <th>開始時間</th>
-                                    <th>結束時間</th>
-                                    <th>距離</th>
-                                    <th>交通工具</th>
-                                    <th>碳排放</th>
-                                    <th>狀態</th>
+                                    <th>時間</th>
+                                    <th>緯度</th>
+                                    <th>經度</th>
+                                    <th>速度</th>
+                                    <th>更新時間</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach($recentTrips as $trip)
+                                @foreach($lastFiveGps as $gps)
                                     <tr>
-                                        <td>{{ \Carbon\Carbon::parse($trip['start_time'])->format('H:i') }}</td>
-                                        <td>
-                                            @if($trip['end_time'])
-                                                {{ \Carbon\Carbon::parse($trip['end_time'])->format('H:i') }}
-                                            @else
-                                                <span class="badge bg-warning">進行中</span>
-                                            @endif
-                                        </td>
-                                        <td>{{ number_format($trip['distance'] ?? 0, 1) }} km</td>
-                                        <td>
-                                            @php
-                                                $transportLabels = [
-                                                    'walking' => '步行',
-                                                    'bus' => '公車',
-                                                    'mrt' => '捷運',
-                                                    'car' => '汽車',
-                                                    'motorcycle' => '機車',
-                                                    'unknown' => '未知'
-                                                ];
-                                            @endphp
-                                            {{ $transportLabels[$trip['transport_mode']] ?? '未知' }}
-                                        </td>
-                                        <td>
-                                            @if($trip['carbon_emission'])
-                                                {{ number_format($trip['carbon_emission']['co2_emission'], 2) }} kg
-                                            @else
-                                                --
-                                            @endif
-                                        </td>
-                                        <td>
-                                            @if($trip['end_time'])
-                                                <span class="badge bg-success">已完成</span>
-                                            @else
-                                                <span class="badge bg-primary">進行中</span>
-                                            @endif
-                                        </td>
+                                        <td>{{ \Carbon\Carbon::parse($gps['recorded_at'])->format('H:i:s') }}</td>
+                                        <td>{{ number_format($gps['latitude'], 6) }}</td>
+                                        <td>{{ number_format($gps['longitude'], 6) }}</td>
+                                        <td>{{ number_format($gps['speed'], 1) }} km/h</td>
+                                        <td><small class="text-muted">{{ $gps['time_ago'] }}</small></td>
                                     </tr>
                                 @endforeach
                             </tbody>
                         </table>
                     </div>
                 @else
-                    <div class="text-center py-4">
-                        <i class="fas fa-route fa-3x text-muted mb-3"></i>
-                        <h6 class="text-muted">尚無行程記錄</h6>
-                    </div>
+                    <p class="text-muted">暫無記錄</p>
                 @endif
             </div>
         </div>
-    </div>
 
-    <style>
-    .status-indicator {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        display: inline-block;
-    }
-    </style>
+        <!-- 最近行程記錄 -->
+        @if(count($recentTrips) > 0)
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">最近行程記錄</h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    @foreach($recentTrips as $trip)
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <h6>{{ $trip['trip_type'] === 'to_work' ? '上班' : ($trip['trip_type'] === 'from_work' ? '下班' : '其他') }}</h6>
+                                    <small>{{ \Carbon\Carbon::parse($trip['start_time'])->format('Y-m-d H:i') }}</small>
+                                </div>
+                                <div class="text-end">
+                                    <span class="badge bg-info">{{ $trip['transport_mode'] ?? '未知' }}</span>
+                                    @if($trip['distance'])
+                                        <p class="mb-0"><small>{{ number_format($trip['distance'], 2) }} km</small></p>
+                                    @endif
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        </div>
+        @endif
+    </div>
 </div>
+
+<style>
+.status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+</style>
