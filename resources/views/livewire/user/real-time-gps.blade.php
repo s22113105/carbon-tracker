@@ -110,8 +110,6 @@
         </div>
         @endif
     </div>
-</div>
-
 <style>
 .status-indicator {
     width: 10px;
@@ -120,3 +118,5 @@
     display: inline-block;
 }
 </style>
+</div>
+
