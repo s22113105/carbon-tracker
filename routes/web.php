@@ -160,7 +160,7 @@ Route::middleware(['auth'])->prefix('user')->name('user.')->group(function () {
     Route::post('/profile/update', [UserDashboardController::class, 'updateProfile'])->name('profile.update');
     Route::post('/profile/change-password', [UserDashboardController::class, 'changePassword'])->name('profile.change-password');
     Route::post('/profile/update-preferences', [UserDashboardController::class, 'updatePreferences'])->name('profile.update-preferences');
-    
+
     // 報表功能
     Route::get('/reports', [UserDashboardController::class, 'reports'])->name('reports');
     Route::get('/reports/carbon-footprint', [UserDashboardController::class, 'getCarbonFootprintReport'])->name('reports.carbon-footprint');
@@ -364,6 +364,9 @@ Route::middleware(['auth'])->prefix('user')->name('user.')->group(function () {
         Route::get('/history', [CarbonEmissionController::class, 'history'])->name('history');
         Route::get('/statistics', [CarbonEmissionController::class, 'statistics'])->name('statistics');
         
+        // 新增：獲取可分析的資料
+        Route::get('/available-data', [CarbonEmissionController::class, 'getAvailableData'])->name('availableData');
+        
         // 測試功能（透過 Konami Code 啟動）
         Route::prefix('test')->group(function () {
             Route::get('/connection', [CarbonEmissionController::class, 'testConnection']);
@@ -372,8 +375,6 @@ Route::middleware(['auth'])->prefix('user')->name('user.')->group(function () {
             Route::get('/config', [CarbonEmissionController::class, 'getConfig']);
             Route::post('/clear-cache', [CarbonEmissionController::class, 'clearCache']);
         });
-
-        Route::get('/user/carbon/ai-analyses', [CarbonEmissionController::class, 'aiAnalyses'])->name('user.carbon.aiAnalyses');
     });
 });
 

@@ -23,6 +23,130 @@ class OpenAIService
         $this->maxTokens = config('services.openai.max_tokens');
         $this->temperature = config('services.openai.temperature');
         $this->timeout = config('services.openai.timeout');
+
+        // 檢查 API Key 是否存在
+        if (empty($this->apiKey)) {
+            Log::error('OpenAI API Key 未設定！請在 .env 檔案中設定 OPENAI_API_KEY');
+        }
+    }
+    
+
+    /**
+     * 測試 OpenAI 連線
+     */
+    public function testConnection()
+    {
+        try {
+            // 檢查 API Key
+            if (empty($this->apiKey)) {
+                return [
+                    'success' => false,
+                    'message' => 'API Key 未設定，請在 .env 檔案中設定 OPENAI_API_KEY',
+                    'debug' => [
+                        'api_key_exists' => false,
+                        'api_key_length' => 0
+                    ]
+                ];
+            }
+            
+            Log::info('測試 OpenAI 連線', [
+                'api_url' => $this->apiUrl . '/v1/chat/completions',
+                'model' => $this->model,
+                'timeout' => $this->timeout
+            ]);
+            
+            // 發送測試請求
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type' => 'application/json',
+            ])
+            ->timeout($this->timeout)
+            ->post($this->apiUrl . '/v1/chat/completions', [
+                'model' => $this->model,
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => 'You are a helpful assistant.'
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => 'Hello, this is a connection test. Please respond with "Connection successful".'
+                    ]
+                ],
+                'max_tokens' => 50,
+                'temperature' => 0.5,
+            ]);
+            
+            if ($response->successful()) {
+                $data = $response->json();
+                return [
+                    'success' => true,
+                    'message' => '連線成功',
+                    'response' => $data['choices'][0]['message']['content'] ?? 'No response',
+                    'model' => $data['model'] ?? $this->model,
+                    'usage' => $data['usage'] ?? null
+                ];
+            } else {
+                $error = $response->json();
+                $statusCode = $response->status();
+                
+                // 處理常見錯誤
+                if ($statusCode === 401) {
+                    return [
+                        'success' => false,
+                        'message' => 'API Key 無效或已過期，請檢查您的 OpenAI API Key',
+                        'error' => $error['error']['message'] ?? 'Unauthorized',
+                        'status_code' => $statusCode
+                    ];
+                } elseif ($statusCode === 429) {
+                    return [
+                        'success' => false,
+                        'message' => 'API 請求超過限制，請稍後再試或檢查您的 OpenAI 帳戶配額',
+                        'error' => $error['error']['message'] ?? 'Rate limit exceeded',
+                        'status_code' => $statusCode
+                    ];
+                } elseif ($statusCode === 404) {
+                    return [
+                        'success' => false,
+                        'message' => 'API 端點不存在，請檢查 API URL 設定',
+                        'error' => $error['error']['message'] ?? 'Not found',
+                        'status_code' => $statusCode
+                    ];
+                } else {
+                    return [
+                        'success' => false,
+                        'message' => 'API 請求失敗',
+                        'status_code' => $statusCode,
+                        'error' => $error['error']['message'] ?? 'Unknown error',
+                        'type' => $error['error']['type'] ?? null,
+                        'code' => $error['error']['code'] ?? null
+                    ];
+                }
+            }
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            Log::error('OpenAI 連線超時', [
+                'error' => $e->getMessage(),
+                'timeout' => $this->timeout
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => '連線超時，請檢查網路連線或增加超時時間',
+                'error' => $e->getMessage(),
+                'timeout' => $this->timeout
+            ];
+        } catch (\Exception $e) {
+            Log::error('OpenAI 連線測試失敗', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => '連線失敗：' . $e->getMessage(),
+                'exception' => get_class($e)
+            ];
+        }
     }
     
     /**
@@ -532,32 +656,5 @@ PROMPT;
         }
         
         return $suggestions;
-    }
-    
-    /**
-     * 測試 OpenAI 連接
-     */
-    public function testConnection()
-    {
-        try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
-                'Content-Type' => 'application/json',
-            ])
-            ->timeout(10)
-            ->post($this->apiUrl, [
-                'model' => $this->model,
-                'messages' => [
-                    ['role' => 'user', 'content' => 'Hi']
-                ],
-                'max_tokens' => 10
-            ]);
-            
-            return $response->successful();
-            
-        } catch (\Exception $e) {
-            Log::error('OpenAI 連接測試失敗: ' . $e->getMessage());
-            return false;
-        }
     }
 }
