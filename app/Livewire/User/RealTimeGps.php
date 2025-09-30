@@ -4,109 +4,101 @@ namespace App\Livewire\User;
 
 use Livewire\Component;
 use Illuminate\Support\Facades\DB;
-use App\Models\Trip;
 use Carbon\Carbon;
 
 class RealTimeGps extends Component
 {
     public $latestGps = null;
-    public $recentTrips = [];
     public $isOnline = false;
-    public $lastFiveGps = [];
-    public $deviceStatus = null;
-
+    public $currentSpeed = 0;
+    public $totalDistanceToday = 0;
+    public $carbonEmissionToday = 0;
+    public $currentLocation = '';
+    
     public function mount()
     {
         $this->loadData();
     }
-
+    
     public function refreshData()
     {
         $this->loadData();
     }
-
+    
     public function loadData()
     {
         $userId = auth()->id();
         
-        // 從 gps_tracks 表讀取最新的 GPS 記錄
+        // 獲取最新GPS記錄
         $latestRecord = DB::table('gps_tracks')
             ->where('user_id', $userId)
             ->orderBy('recorded_at', 'desc')
             ->first();
-            
+        
         if ($latestRecord) {
             $this->latestGps = [
                 'latitude' => $latestRecord->latitude,
                 'longitude' => $latestRecord->longitude,
                 'speed' => $latestRecord->speed ?? 0,
                 'recorded_at' => $latestRecord->recorded_at,
-                'device_type' => $latestRecord->device_type ?? 'Unknown',
             ];
             
-            // 改善在線判斷邏輯
+            // 判斷是否在線（最後記錄在90秒內）
             $recordedAt = Carbon::parse($latestRecord->recorded_at);
-            $now = Carbon::now();
-            $diffInSeconds = $now->diffInSeconds($recordedAt);
+            $this->isOnline = $recordedAt->diffInSeconds(now()) <= 90;
             
-            // 如果最後記錄在 90 秒內（ESP32 每 30 秒傳送，給予 3 倍容錯）
-            $this->isOnline = $diffInSeconds <= 90;
+            $this->currentSpeed = $latestRecord->speed ?? 0;
             
-            // 除錯資訊
-            \Log::info('在線狀態檢查', [
-                'recorded_at' => $recordedAt->toDateTimeString(),
-                'now' => $now->toDateTimeString(),
-                'diff_seconds' => $diffInSeconds,
-                'is_online' => $this->isOnline
-            ]);
-        } else {
-            $this->isOnline = false;
+            // 判斷當前位置
+            $this->currentLocation = $this->getLocationName(
+                $latestRecord->latitude, 
+                $latestRecord->longitude
+            );
         }
         
-        // 檢查設備狀態表
-        $this->deviceStatus = DB::table('device_status')
-            ->join('device_users', 'device_status.device_id', '=', 'device_users.device_id')
-            ->where('device_users.user_id', $userId)
-            ->select('device_status.*')
+        // 計算今日統計
+        $todayStats = DB::table('trips')
+            ->where('user_id', $userId)
+            ->whereDate('start_time', Carbon::today())
+            ->selectRaw('SUM(distance) as total_distance')
             ->first();
         
-        if ($this->deviceStatus) {
-            // 使用設備狀態表的在線狀態作為輔助判斷
-            $lastSeen = Carbon::parse($this->deviceStatus->last_seen);
-            $deviceOnline = Carbon::now()->diffInSeconds($lastSeen) <= 90;
-            
-            // 綜合判斷
-            $this->isOnline = $this->isOnline || $deviceOnline;
+        $this->totalDistanceToday = $todayStats->total_distance ?? 0;
+        
+        // 計算今日碳排放
+        $todayEmissions = DB::table('carbon_emissions')
+            ->where('user_id', $userId)
+            ->where('date', Carbon::today())
+            ->sum('carbon_amount');
+        
+        $this->carbonEmissionToday = round($todayEmissions, 2);
+    }
+    
+    private function getLocationName($lat, $lng)
+    {
+        // 定義關鍵位置
+        $locations = [
+            ['name' => '橫山168', 'lat' => 22.7932, 'lng' => 120.3657, 'radius' => 0.001],
+            ['name' => '麥當勞楠梓餐廳', 'lat' => 22.8285, 'lng' => 120.4195, 'radius' => 0.001],
+            ['name' => '旗楠路', 'lat' => 22.8034, 'lng' => 120.3815, 'radius' => 0.005],
+            ['name' => '建楠路', 'lat' => 22.8226, 'lng' => 120.4103, 'radius' => 0.005],
+        ];
+        
+        foreach ($locations as $location) {
+            $distance = $this->calculateDistance($lat, $lng, $location['lat'], $location['lng']);
+            if ($distance <= $location['radius']) {
+                return $location['name'];
+            }
         }
         
-        // 取得最近 5 筆 GPS 記錄
-        $this->lastFiveGps = DB::table('gps_tracks')
-            ->where('user_id', $userId)
-            ->orderBy('recorded_at', 'desc')
-            ->limit(5)
-            ->get()
-            ->map(function ($record) {
-                $recordedAt = Carbon::parse($record->recorded_at);
-                return [
-                    'latitude' => $record->latitude,
-                    'longitude' => $record->longitude,
-                    'speed' => $record->speed ?? 0,
-                    'recorded_at' => $record->recorded_at,
-                    'formatted_time' => $recordedAt->format('H:i:s'),
-                    'time_ago' => $recordedAt->diffForHumans(),
-                ];
-            })
-            ->toArray();
-
-        // 最近的行程
-        $this->recentTrips = Trip::where('user_id', $userId)
-            ->with('carbonEmission')
-            ->latest('start_time')
-            ->limit(5)
-            ->get()
-            ->toArray();
+        return '移動中';
     }
-
+    
+    private function calculateDistance($lat1, $lon1, $lat2, $lon2)
+    {
+        return sqrt(pow($lat2 - $lat1, 2) + pow($lon2 - $lon1, 2));
+    }
+    
     public function render()
     {
         return view('livewire.user.real-time-gps');
