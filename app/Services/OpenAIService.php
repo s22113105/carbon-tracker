@@ -8,248 +8,197 @@ use Illuminate\Support\Facades\Cache;
 
 class OpenAIService
 {
-    protected $apiKey;
-    protected $apiUrl;
-    protected $model;
-    protected $maxTokens;
-    protected $temperature;
-    protected $timeout;
-    
+    private $apiKey;
+    private $model;
+    private $apiUrl;
+
     public function __construct()
     {
         $this->apiKey = config('services.openai.api_key');
-        $this->apiUrl = config('services.openai.api_url');
-        $this->model = config('services.openai.model');
-        $this->maxTokens = config('services.openai.max_tokens');
-        $this->temperature = config('services.openai.temperature');
-        $this->timeout = config('services.openai.timeout');
-
-        // 檢查 API Key 是否存在
-        if (empty($this->apiKey)) {
-            Log::error('OpenAI API Key 未設定！請在 .env 檔案中設定 OPENAI_API_KEY');
-        }
+        $this->model = config('services.openai.model', 'gpt-4o-mini');
+        $this->apiUrl = config('services.openai.api_url', 'https://api.openai.com/v1/chat/completions');
     }
-    
 
     /**
-     * 測試 OpenAI 連線
+     * 分析碳足跡 - 主要方法
+     * 這是 CarbonEmissionController 會調用的方法
      */
-    public function testConnection()
+    public function analyzeCarbonFootprint(array $gpsData)
     {
         try {
-            // 檢查 API Key
-            if (empty($this->apiKey)) {
-                return [
-                    'success' => false,
-                    'message' => 'API Key 未設定，請在 .env 檔案中設定 OPENAI_API_KEY',
-                    'debug' => [
-                        'api_key_exists' => false,
-                        'api_key_length' => 0
-                    ]
-                ];
-            }
-            
-            Log::info('測試 OpenAI 連線', [
-                'api_url' => $this->apiUrl . '/v1/chat/completions',
-                'model' => $this->model,
-                'timeout' => $this->timeout
-            ]);
-            
-            // 發送測試請求
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
-                'Content-Type' => 'application/json',
-            ])
-            ->timeout($this->timeout)
-            ->post($this->apiUrl . '/v1/chat/completions', [
-                'model' => $this->model,
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => 'You are a helpful assistant.'
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => 'Hello, this is a connection test. Please respond with "Connection successful".'
-                    ]
-                ],
-                'max_tokens' => 50,
-                'temperature' => 0.5,
-            ]);
-            
-            if ($response->successful()) {
-                $data = $response->json();
-                return [
-                    'success' => true,
-                    'message' => '連線成功',
-                    'response' => $data['choices'][0]['message']['content'] ?? 'No response',
-                    'model' => $data['model'] ?? $this->model,
-                    'usage' => $data['usage'] ?? null
-                ];
-            } else {
-                $error = $response->json();
-                $statusCode = $response->status();
-                
-                // 處理常見錯誤
-                if ($statusCode === 401) {
-                    return [
-                        'success' => false,
-                        'message' => 'API Key 無效或已過期，請檢查您的 OpenAI API Key',
-                        'error' => $error['error']['message'] ?? 'Unauthorized',
-                        'status_code' => $statusCode
-                    ];
-                } elseif ($statusCode === 429) {
-                    return [
-                        'success' => false,
-                        'message' => 'API 請求超過限制，請稍後再試或檢查您的 OpenAI 帳戶配額',
-                        'error' => $error['error']['message'] ?? 'Rate limit exceeded',
-                        'status_code' => $statusCode
-                    ];
-                } elseif ($statusCode === 404) {
-                    return [
-                        'success' => false,
-                        'message' => 'API 端點不存在，請檢查 API URL 設定',
-                        'error' => $error['error']['message'] ?? 'Not found',
-                        'status_code' => $statusCode
-                    ];
-                } else {
-                    return [
-                        'success' => false,
-                        'message' => 'API 請求失敗',
-                        'status_code' => $statusCode,
-                        'error' => $error['error']['message'] ?? 'Unknown error',
-                        'type' => $error['error']['type'] ?? null,
-                        'code' => $error['error']['code'] ?? null
-                    ];
-                }
-            }
-        } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            Log::error('OpenAI 連線超時', [
-                'error' => $e->getMessage(),
-                'timeout' => $this->timeout
-            ]);
-            
-            return [
-                'success' => false,
-                'message' => '連線超時，請檢查網路連線或增加超時時間',
-                'error' => $e->getMessage(),
-                'timeout' => $this->timeout
-            ];
-        } catch (\Exception $e) {
-            Log::error('OpenAI 連線測試失敗', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            
-            return [
-                'success' => false,
-                'message' => '連線失敗：' . $e->getMessage(),
-                'exception' => get_class($e)
-            ];
-        }
-    }
-    
-    /**
-     * 分析 GPS 資料並判斷交通工具和碳排放
-     */
-    public function analyzeTransportMode(array $gpsData)
-    {
-        try {
-            // 建立快取鍵值
-            $cacheKey = 'ai_analysis_' . md5(json_encode($gpsData));
+            // 生成快取鍵
+            $cacheKey = 'carbon_analysis_' . md5(json_encode($gpsData));
             
             // 檢查快取
             if (Cache::has($cacheKey)) {
+                Log::info('從快取返回分析結果');
                 return Cache::get($cacheKey);
             }
+
+            Log::info('開始 OpenAI 碳足跡分析', [
+                'gps_points' => count($gpsData),
+                'first_point' => $gpsData[0] ?? null
+            ]);
+
+            // 計算 GPS 統計資料
+            $stats = $this->calculateGpsStats($gpsData);
             
-            $prompt = $this->buildAnalysisPrompt($gpsData);
-            
-            // 使用 Laravel HTTP Client 呼叫 OpenAI API
+            // 構建提示詞
+            $systemPrompt = $this->getSystemPrompt();
+            $userPrompt = $this->buildAnalysisPrompt($gpsData, $stats);
+
+            // 調用 OpenAI API
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->apiKey,
                 'Content-Type' => 'application/json',
-            ])
-            ->timeout($this->timeout)
-            ->post($this->apiUrl, [
+            ])->timeout(60)->post($this->apiUrl, [
                 'model' => $this->model,
                 'messages' => [
                     [
                         'role' => 'system',
-                        'content' => $this->getSystemPrompt()
+                        'content' => $systemPrompt
                     ],
                     [
                         'role' => 'user',
-                        'content' => $prompt
+                        'content' => $userPrompt
                     ]
                 ],
-                'temperature' => $this->temperature,
-                'max_tokens' => $this->maxTokens,
-                'response_format' => ['type' => 'json_object']
+                'temperature' => 0.3,
+                'max_tokens' => 2000
             ]);
-            
+
             if (!$response->successful()) {
                 throw new \Exception('OpenAI API 請求失敗: ' . $response->body());
             }
-            
+
             $responseData = $response->json();
             
             if (!isset($responseData['choices'][0]['message']['content'])) {
                 throw new \Exception('OpenAI 回應格式錯誤');
             }
-            
-            $result = json_decode($responseData['choices'][0]['message']['content'], true);
-            
-            // 驗證回應格式
-            if (!$this->validateResponse($result)) {
+
+            // 解析 JSON 回應
+            $content = $responseData['choices'][0]['message']['content'];
+            $result = $this->parseAnalysisResult($content);
+
+            // 驗證結果
+            if (!$this->validateAnalysisResult($result)) {
                 throw new \Exception('AI 回應格式無效');
             }
-            
-            // 快取結果 (24小時)
-            Cache::put($cacheKey, $result, 86400);
-            
+
+            // 快取結果 (1小時)
+            Cache::put($cacheKey, $result, 3600);
+
+            Log::info('OpenAI 分析完成', [
+                'transport_mode' => $result['transport_mode'] ?? 'unknown',
+                'carbon_emission' => $result['carbon_emission'] ?? 0
+            ]);
+
             return $result;
-            
+
         } catch (\Exception $e) {
-            Log::error('OpenAI 分析錯誤: ' . $e->getMessage());
-            Log::error('錯誤詳情: ' . json_encode([
-                'error' => $e->getMessage(),
+            Log::error('OpenAI 分析錯誤: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString()
-            ]));
-            
-            // 回傳預設分析結果
+            ]);
+
+            // 返回預設分析結果
             return $this->getDefaultAnalysis($gpsData);
         }
     }
-    
+
     /**
-     * 建立系統提示詞
+     * 計算 GPS 統計資料
+     */
+    private function calculateGpsStats(array $gpsData)
+    {
+        if (empty($gpsData)) {
+            return [
+                'total_points' => 0,
+                'total_distance' => 0,
+                'total_duration' => 0,
+                'average_speed' => 0,
+                'max_speed' => 0
+            ];
+        }
+
+        $totalDistance = 0;
+        $speeds = [];
+        
+        for ($i = 0; $i < count($gpsData) - 1; $i++) {
+            $distance = $this->calculateDistance(
+                $gpsData[$i]['latitude'],
+                $gpsData[$i]['longitude'],
+                $gpsData[$i + 1]['latitude'],
+                $gpsData[$i + 1]['longitude']
+            );
+            $totalDistance += $distance;
+            
+            if (isset($gpsData[$i]['speed'])) {
+                $speeds[] = $gpsData[$i]['speed'];
+            }
+        }
+
+        // 計算時間差
+        $startTime = strtotime($gpsData[0]['timestamp']);
+        $endTime = strtotime($gpsData[count($gpsData) - 1]['timestamp']);
+        $totalDuration = $endTime - $startTime;
+
+        return [
+            'total_points' => count($gpsData),
+            'total_distance' => round($totalDistance, 2),
+            'total_duration' => $totalDuration,
+            'average_speed' => !empty($speeds) ? round(array_sum($speeds) / count($speeds), 1) : 0,
+            'max_speed' => !empty($speeds) ? round(max($speeds), 1) : 0
+        ];
+    }
+
+    /**
+     * 計算兩點之間的距離 (公里)
+     */
+    private function calculateDistance($lat1, $lon1, $lat2, $lon2)
+    {
+        $earthRadius = 6371; // 地球半徑(公里)
+
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+
+        $a = sin($dLat / 2) * sin($dLat / 2) +
+             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
+             sin($dLon / 2) * sin($dLon / 2);
+
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+
+        return $earthRadius * $c;
+    }
+
+    /**
+     * 系統提示詞
      */
     private function getSystemPrompt()
     {
         return <<<PROMPT
-你是一個專業的交通模式和碳排放分析專家。根據提供的GPS資料（包含經緯度、時間戳記、速度），你需要：
+你是一個專業的交通模式和碳排放分析專家。根據提供的GPS資料,你需要:
 
-1. 判斷使用的交通工具（walking/bicycle/motorcycle/car/bus）
+1. 判斷使用的交通工具(walking/bicycle/motorcycle/car/bus)
 2. 計算總行駛距離和時間
 3. 根據台灣的碳排放係數計算碳排放量
 4. 提供具體的減碳建議
 
-碳排放係數（kg CO2/km）：
-- walking（步行）: 0
-- bicycle（腳踏車）: 0
-- motorcycle（機車）: 0.095
-- car（汽車）: 0.21
-- bus（公車）: 0.089
+碳排放係數(kg CO2/km):
+- walking(步行): 0
+- bicycle(腳踏車): 0
+- motorcycle(機車): 0.095
+- car(汽車): 0.21
+- bus(公車): 0.089
 
-判斷標準：
-- 步行: 平均速度 < 6 km/h，最高速度 < 10 km/h
-- 腳踏車: 平均速度 6-20 km/h，最高速度 < 30 km/h
-- 機車: 平均速度 20-40 km/h，最高速度 40-80 km/h，路線多為市區
-- 汽車: 平均速度 30-60 km/h，最高速度 > 60 km/h
-- 公車: 平均速度 15-30 km/h，有頻繁停留（站點）
+判斷標準:
+- 步行: 平均速度 < 6 km/h
+- 腳踏車: 平均速度 6-20 km/h
+- 機車: 平均速度 20-50 km/h,最高速度 40-80 km/h
+- 汽車: 平均速度 30-70 km/h,最高速度 > 60 km/h
+- 公車: 平均速度 15-40 km/h,有頻繁停留
 
-你必須以JSON格式回應，格式如下：
+你必須以JSON格式回應,格式如下:
 {
   "transport_mode": "判斷的交通工具",
   "confidence": 0.95,
@@ -257,38 +206,26 @@ class OpenAIService
   "total_duration": 1800,
   "average_speed": 25.0,
   "max_speed": 45.0,
-  "carbon_emission": 2.625,
+  "carbon_emission": 1.188,
   "route_analysis": "詳細路線分析說明",
   "suggestions": [
-    "建議1：具體可行的減碳方案",
-    "建議2：替代交通方式建議",
-    "建議3：路線優化建議"
-  ],
-  "journey_segments": [
-    {
-      "start_time": "09:00",
-      "end_time": "09:15",
-      "distance": 5.2,
-      "mode": "car",
-      "emission": 1.092
-    }
+    "建議1:具體可行的減碳方案",
+    "建議2:替代交通方式建議"
   ]
 }
 PROMPT;
     }
-    
+
     /**
-     * 建立分析提示詞
+     * 構建分析提示詞
      */
-    private function buildAnalysisPrompt(array $gpsData)
+    private function buildAnalysisPrompt(array $gpsData, array $stats)
     {
-        $stats = $this->calculateGpsStats($gpsData);
-        
-        // 準備軌跡資料摘要
-        $trajectoryData = [];
-        $sampleSize = min(20, count($gpsData)); // 最多取20個點
+        // 取樣 GPS 資料(最多20個點)
+        $sampleSize = min(20, count($gpsData));
         $step = max(1, floor(count($gpsData) / $sampleSize));
         
+        $trajectoryData = [];
         for ($i = 0; $i < count($gpsData); $i += $step) {
             if (isset($gpsData[$i])) {
                 $trajectoryData[] = [
@@ -299,362 +236,128 @@ PROMPT;
                 ];
             }
         }
+
+        $prompt = "請分析以下GPS資料並判斷交通工具和碳排放:\n\n";
+        $prompt .= "=== 統計資料 ===\n";
+        $prompt .= "資料點數: {$stats['total_points']}\n";
+        $prompt .= "總距離: {$stats['total_distance']} km\n";
+        $prompt .= "總時間: " . round($stats['total_duration'] / 60) . " 分鐘\n";
+        $prompt .= "平均速度: {$stats['average_speed']} km/h\n";
+        $prompt .= "最高速度: {$stats['max_speed']} km/h\n\n";
         
-        return sprintf(
-            "請分析以下GPS資料並判斷交通工具和碳排放：\n\n" .
-            "=== 統計資料 ===\n" .
-            "日期：%s\n" .
-            "資料點數量：%d\n" .
-            "總時間：%d 秒 (%s)\n" .
-            "計算距離：%.2f 公里\n" .
-            "平均速度：%.2f km/h\n" .
-            "最高速度：%.2f km/h\n" .
-            "最低速度：%.2f km/h\n" .
-            "速度標準差：%.2f\n" .
-            "停留次數（速度<2km/h）：%d\n" .
-            "速度變化頻率：%s\n\n" .
-            "=== GPS軌跡資料（採樣）===\n%s\n\n" .
-            "請根據以上資料判斷交通工具，計算碳排放，並提供減碳建議。",
-            $stats['date'],
-            $stats['point_count'],
-            $stats['total_duration'],
-            $this->formatDuration($stats['total_duration']),
-            $stats['total_distance'],
-            $stats['avg_speed'],
-            $stats['max_speed'],
-            $stats['min_speed'],
-            $stats['speed_std'],
-            $stats['stop_count'],
-            $stats['speed_variation'],
-            json_encode($trajectoryData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
-        );
+        $prompt .= "=== 軌跡樣本 ===\n";
+        $prompt .= json_encode($trajectoryData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        
+        $prompt .= "\n\n請根據以上資料進行分析,並以JSON格式回應。";
+
+        return $prompt;
     }
-    
+
     /**
-     * 計算 GPS 統計資料
+     * 解析分析結果
      */
-    private function calculateGpsStats(array $gpsData)
+    private function parseAnalysisResult($content)
     {
-        if (empty($gpsData)) {
-            return $this->getEmptyStats();
-        }
-        
-        $totalDistance = 0;
-        $speeds = [];
-        $stopCount = 0;
-        $speedChanges = 0;
-        $lastSpeed = null;
-        
-        // 確保資料按時間排序
-        usort($gpsData, function($a, $b) {
-            return strtotime($a['timestamp']) - strtotime($b['timestamp']);
-        });
-        
-        for ($i = 1; $i < count($gpsData); $i++) {
-            // 計算距離
-            $distance = $this->calculateDistance(
-                $gpsData[$i-1]['latitude'],
-                $gpsData[$i-1]['longitude'],
-                $gpsData[$i]['latitude'],
-                $gpsData[$i]['longitude']
-            );
+        // 嘗試從文本中提取 JSON
+        if (preg_match('/\{[\s\S]*\}/', $content, $matches)) {
+            $jsonStr = $matches[0];
+            $result = json_decode($jsonStr, true);
             
-            $totalDistance += $distance;
-            
-            // 計算速度
-            $speed = $gpsData[$i]['speed'] ?? 0;
-            
-            // 如果沒有速度資料，從距離和時間計算
-            if ($speed == 0 && $distance > 0) {
-                $timeDiff = strtotime($gpsData[$i]['timestamp']) - strtotime($gpsData[$i-1]['timestamp']);
-                if ($timeDiff > 0) {
-                    $speed = ($distance / $timeDiff) * 3600; // 轉換為 km/h
-                }
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return $result;
             }
-            
-            $speeds[] = $speed;
-            
-            // 計算停留次數
-            if ($speed < 2) {
-                $stopCount++;
-            }
-            
-            // 計算速度變化頻率
-            if ($lastSpeed !== null && abs($speed - $lastSpeed) > 10) {
-                $speedChanges++;
-            }
-            $lastSpeed = $speed;
         }
-        
-        $firstPoint = $gpsData[0];
-        $lastPoint = end($gpsData);
-        $totalDuration = strtotime($lastPoint['timestamp']) - strtotime($firstPoint['timestamp']);
-        
-        // 計算速度變化頻率描述
-        $speedVariation = 'stable';
-        if ($speedChanges > count($gpsData) * 0.3) {
-            $speedVariation = 'high';
-        } elseif ($speedChanges > count($gpsData) * 0.1) {
-            $speedVariation = 'medium';
+
+        // 如果無法解析,嘗試直接解析
+        $result = json_decode($content, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return $result;
         }
-        
-        return [
-            'date' => date('Y-m-d', strtotime($firstPoint['timestamp'])),
-            'point_count' => count($gpsData),
-            'total_duration' => max(1, $totalDuration), // 至少1秒
-            'total_distance' => round($totalDistance, 2),
-            'avg_speed' => $speeds ? round(array_sum($speeds) / count($speeds), 2) : 0,
-            'max_speed' => $speeds ? round(max($speeds), 2) : 0,
-            'min_speed' => $speeds ? round(min($speeds), 2) : 0,
-            'speed_std' => round($this->calculateStandardDeviation($speeds), 2),
-            'stop_count' => $stopCount,
-            'speed_variation' => $speedVariation
-        ];
+
+        throw new \Exception('無法解析 AI 回應: ' . $content);
     }
-    
+
     /**
-     * 取得空資料統計
+     * 驗證分析結果
      */
-    private function getEmptyStats()
+    private function validateAnalysisResult($result)
     {
-        return [
-            'date' => date('Y-m-d'),
-            'point_count' => 0,
-            'total_duration' => 0,
-            'total_distance' => 0,
-            'avg_speed' => 0,
-            'max_speed' => 0,
-            'min_speed' => 0,
-            'speed_std' => 0,
-            'stop_count' => 0,
-            'speed_variation' => 'none'
-        ];
-    }
-    
-    /**
-     * 計算兩點間距離（Haversine公式）
-     */
-    private function calculateDistance($lat1, $lon1, $lat2, $lon2)
-    {
-        $earthRadius = 6371; // 地球半徑（公里）
-        
-        $lat1 = deg2rad($lat1);
-        $lat2 = deg2rad($lat2);
-        $deltaLat = deg2rad($lat2 - $lat1);
-        $deltaLon = deg2rad($lon2 - $lon1);
-        
-        $a = sin($deltaLat/2) * sin($deltaLat/2) +
-             cos($lat1) * cos($lat2) *
-             sin($deltaLon/2) * sin($deltaLon/2);
-        
-        $c = 2 * atan2(sqrt($a), sqrt(1-$a));
-        
-        return $earthRadius * $c;
-    }
-    
-    /**
-     * 計算標準差
-     */
-    private function calculateStandardDeviation($values)
-    {
-        if (empty($values)) return 0;
-        
-        $mean = array_sum($values) / count($values);
-        $variance = array_sum(array_map(function($x) use ($mean) {
-            return pow($x - $mean, 2);
-        }, $values)) / count($values);
-        
-        return sqrt($variance);
-    }
-    
-    /**
-     * 格式化時間長度
-     */
-    private function formatDuration($seconds)
-    {
-        $hours = floor($seconds / 3600);
-        $minutes = floor(($seconds % 3600) / 60);
-        $secs = $seconds % 60;
-        
-        if ($hours > 0) {
-            return sprintf("%d小時%d分鐘", $hours, $minutes);
-        } elseif ($minutes > 0) {
-            return sprintf("%d分鐘%d秒", $minutes, $secs);
-        } else {
-            return sprintf("%d秒", $secs);
-        }
-    }
-    
-    /**
-     * 驗證 AI 回應格式
-     */
-    private function validateResponse($response)
-    {
-        if (!is_array($response)) {
+        if (!is_array($result)) {
             return false;
         }
-        
+
         $requiredFields = [
-            'transport_mode', 
-            'total_distance', 
-            'total_duration',
-            'carbon_emission', 
-            'suggestions'
+            'transport_mode',
+            'total_distance',
+            'carbon_emission'
         ];
-        
+
         foreach ($requiredFields as $field) {
-            if (!isset($response[$field])) {
-                Log::warning("AI 回應缺少必要欄位: $field");
+            if (!isset($result[$field])) {
+                Log::warning('分析結果缺少必要欄位: ' . $field);
                 return false;
             }
         }
-        
-        // 驗證數值欄位
-        if (!is_numeric($response['total_distance']) || 
-            !is_numeric($response['total_duration']) ||
-            !is_numeric($response['carbon_emission'])) {
-            return false;
-        }
-        
-        // 驗證建議是否為陣列
-        if (!is_array($response['suggestions'])) {
-            return false;
-        }
-        
+
         return true;
     }
-    
+
     /**
-     * 預設分析結果（當 AI 服務失敗時）
+     * 獲取預設分析結果(當 AI 失敗時)
      */
-    private function getDefaultAnalysis($gpsData)
+    private function getDefaultAnalysis(array $gpsData)
     {
         $stats = $this->calculateGpsStats($gpsData);
         
-        // 基於速度的簡單判斷邏輯
-        $transportMode = 'walking';
-        $carbonFactor = 0;
-        $confidence = 0.7;
+        // 根據速度簡單判斷交通工具
+        $avgSpeed = $stats['average_speed'];
         
-        if ($stats['avg_speed'] > 50) {
-            $transportMode = 'car';
-            $carbonFactor = 0.21;
-            $confidence = 0.8;
-        } elseif ($stats['avg_speed'] > 25) {
-            // 判斷是機車還是汽車
-            if ($stats['max_speed'] < 80 && $stats['speed_variation'] === 'high') {
-                $transportMode = 'motorcycle';
-                $carbonFactor = 0.095;
-            } else {
-                $transportMode = 'car';
-                $carbonFactor = 0.21;
-            }
-            $confidence = 0.75;
-        } elseif ($stats['avg_speed'] > 12) {
-            // 判斷是腳踏車還是公車
-            if ($stats['stop_count'] > $stats['point_count'] * 0.2) {
-                $transportMode = 'bus';
-                $carbonFactor = 0.089;
-                $confidence = 0.65;
-            } else {
-                $transportMode = 'bicycle';
-                $carbonFactor = 0;
-                $confidence = 0.8;
-            }
-        } elseif ($stats['avg_speed'] > 3) {
-            $transportMode = 'bicycle';
-            $carbonFactor = 0;
-            $confidence = 0.7;
+        if ($avgSpeed < 6) {
+            $mode = 'walking';
+            $emissionFactor = 0;
+        } elseif ($avgSpeed < 20) {
+            $mode = 'bicycle';
+            $emissionFactor = 0;
+        } elseif ($avgSpeed < 50) {
+            $mode = 'motorcycle';
+            $emissionFactor = 0.095;
         } else {
-            $transportMode = 'walking';
-            $carbonFactor = 0;
-            $confidence = 0.85;
+            $mode = 'car';
+            $emissionFactor = 0.21;
         }
-        
-        $carbonEmission = $stats['total_distance'] * $carbonFactor;
-        
-        // 生成預設建議
-        $suggestions = $this->generateDefaultSuggestions($transportMode, $carbonEmission, $stats);
-        
+
+        $carbonEmission = $stats['total_distance'] * $emissionFactor;
+
         return [
-            'transport_mode' => $transportMode,
-            'confidence' => $confidence,
+            'transport_mode' => $mode,
+            'confidence' => 0.7,
             'total_distance' => $stats['total_distance'],
             'total_duration' => $stats['total_duration'],
-            'average_speed' => $stats['avg_speed'],
+            'average_speed' => $stats['average_speed'],
             'max_speed' => $stats['max_speed'],
             'carbon_emission' => round($carbonEmission, 3),
-            'route_analysis' => $this->generateDefaultAnalysis($transportMode, $stats),
-            'suggestions' => $suggestions,
-            'journey_segments' => []
+            'route_analysis' => '基於速度分析的自動判斷結果',
+            'suggestions' => [
+                '建議使用更環保的交通方式',
+                '考慮拼車或使用大眾運輸工具',
+                '短程距離可考慮步行或騎自行車'
+            ]
         ];
     }
-    
+
     /**
-     * 生成預設分析說明
+     * 別名方法 - 為了兼容性
      */
-    private function generateDefaultAnalysis($mode, $stats)
+    public function analyzeCarbonEmission(array $gpsData)
     {
-        $modeNames = [
-            'walking' => '步行',
-            'bicycle' => '騎腳踏車',
-            'motorcycle' => '騎機車',
-            'car' => '開車',
-            'bus' => '搭公車'
-        ];
-        
-        $modeName = $modeNames[$mode] ?? '移動';
-        
-        return sprintf(
-            "根據速度分析，您這段行程主要是%s，平均速度為 %.1f km/h，總距離 %.2f 公里，耗時 %s。",
-            $modeName,
-            $stats['avg_speed'],
-            $stats['total_distance'],
-            $this->formatDuration($stats['total_duration'])
-        );
+        return $this->analyzeCarbonFootprint($gpsData);
     }
-    
+
     /**
-     * 生成預設建議
+     * 分析交通模式
      */
-    private function generateDefaultSuggestions($mode, $emission, $stats)
+    public function analyzeTransportMode(array $gpsData)
     {
-        $suggestions = [];
-        
-        // 根據不同交通工具給予建議
-        switch ($mode) {
-            case 'car':
-                $suggestions[] = "建議1：短程距離（5公里內）可考慮改騎腳踏車或電動機車，預計可減少 " . 
-                               round($emission * 0.8, 2) . " kg CO₂排放";
-                $suggestions[] = "建議2：尋找共乘夥伴，分攤碳排放量，單人碳排可減少50%以上";
-                $suggestions[] = "建議3：規劃路線時避開尖峰時段，減少怠速時間可降低15%碳排放";
-                break;
-                
-            case 'motorcycle':
-                $suggestions[] = "建議1：考慮升級為電動機車，可達到零碳排放";
-                $suggestions[] = "建議2：短程（2公里內）可改為步行或騎腳踏車";
-                $suggestions[] = "建議3：定期保養機車，確保引擎效率，可減少10%油耗";
-                break;
-                
-            case 'bus':
-                $suggestions[] = "建議1：您已選擇大眾運輸，碳排放較低，請繼續保持！";
-                $suggestions[] = "建議2：可搭配步行或腳踏車完成最後一哩路";
-                $suggestions[] = "建議3：選擇電動公車路線，進一步降低碳排放";
-                break;
-                
-            case 'bicycle':
-            case 'walking':
-                $suggestions[] = "建議1：太棒了！您選擇了零碳排放的交通方式";
-                $suggestions[] = "建議2：繼續保持環保出行習慣，您已經是減碳達人";
-                $suggestions[] = "建議3：可以分享您的環保經驗，影響更多人加入減碳行列";
-                break;
-                
-            default:
-                $suggestions[] = "建議1：評估是否能使用大眾運輸工具替代";
-                $suggestions[] = "建議2：短程移動優先選擇步行或騎腳踏車";
-                $suggestions[] = "建議3：規劃最佳路線，減少不必要的繞路";
-        }
-        
-        return $suggestions;
+        return $this->analyzeCarbonFootprint($gpsData);
     }
 }

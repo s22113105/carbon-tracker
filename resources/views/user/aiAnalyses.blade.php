@@ -319,22 +319,42 @@ let emissionChart = null;
 
 // 頁面載入完成後初始化
 document.addEventListener('DOMContentLoaded', function() {
-    loadAvailableData();
-    
-    // 綁定事件
-    document.getElementById('loadDataBtn').addEventListener('click', loadAvailableData);
-    document.getElementById('selectAll').addEventListener('change', toggleSelectAll);
-    document.getElementById('analyzeSelectedBtn').addEventListener('click', analyzeSelectedData);
+    console.log('頁面載入完成,初始化中...');
     
     // 自動載入當月資料
     const today = new Date();
-    document.getElementById('monthSelector').value = 
-        `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const monthInput = document.getElementById('monthSelector');
+    if (monthInput) {
+        monthInput.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    }
+    
+    // 綁定事件
+    const loadBtn = document.getElementById('loadDataBtn');
+    if (loadBtn) {
+        loadBtn.addEventListener('click', loadAvailableData);
+        console.log('載入按鈕事件已綁定');
+    }
+    
+    const selectAllCheckbox = document.getElementById('selectAll');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', toggleSelectAll);
+        console.log('全選按鈕事件已綁定');
+    }
+    
+    const analyzeBtn = document.getElementById('analyzeSelectedBtn');
+    if (analyzeBtn) {
+        analyzeBtn.addEventListener('click', analyzeSelectedData);
+        console.log('分析按鈕事件已綁定');
+    }
+    
+    // 自動載入當月資料
+    loadAvailableData();
 });
 
 // 載入可用資料
 async function loadAvailableData() {
     const month = document.getElementById('monthSelector').value;
+    console.log('載入資料,月份:', month);
     
     // 顯示載入中
     document.getElementById('loadingDataSpinner').style.display = 'block';
@@ -343,54 +363,49 @@ async function loadAvailableData() {
     
     try {
         const response = await fetch(`/user/carbon/available-data?month=${month}`, {
+            method: 'GET',
             headers: {
+                'Accept': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
             }
         });
         
+        console.log('API 回應狀態:', response.status);
         const result = await response.json();
+        console.log('API 回應資料:', result);
         
-        if (result.success && result.data.length > 0) {
+        document.getElementById('loadingDataSpinner').style.display = 'none';
+        
+        if (result.success && result.data && result.data.length > 0) {
             availableData = result.data;
             displayAvailableData(result.data);
             document.getElementById('availableDataSection').style.display = 'block';
             
-            // 顯示摘要資訊
-            if (result.summary) {
-                console.log('資料摘要:', result.summary);
-                showDataSummary(result.summary);
-            }
+            Swal.fire({
+                icon: 'success',
+                title: '載入成功',
+                text: `找到 ${result.data.length} 天的資料`,
+                timer: 1500,
+                showConfirmButton: false
+            });
         } else {
             document.getElementById('noDataAlert').style.display = 'block';
+            const alertDiv = document.getElementById('noDataAlert');
+            alertDiv.innerHTML = `
+                <i class="fas fa-exclamation-triangle"></i>
+                ${result.message || '所選月份沒有可分析的GPS資料'}
+            `;
         }
     } catch (error) {
-        console.error('載入資料失敗:', error);
-        Swal.fire('錯誤', '無法載入資料，請稍後再試', 'error');
-    } finally {
+        console.error('載入資料錯誤:', error);
         document.getElementById('loadingDataSpinner').style.display = 'none';
+        
+        Swal.fire({
+            icon: 'error',
+            title: '載入失敗',
+            text: '無法載入資料,請稍後再試'
+        });
     }
-}
-
-// 顯示資料摘要
-function showDataSummary(summary) {
-    if (!summary) return;
-    
-    let summaryHtml = `
-        <div class="alert alert-info mt-3">
-            <strong>本月資料摘要：</strong>
-            總共 ${summary.total_days} 天，
-            其中 ${summary.days_with_esp32_data} 天有ESP32資料，
-            ${summary.days_with_gps_data} 天有GPS資料，
-            ${summary.days_analyzed} 天已分析
-        </div>
-    `;
-    
-    const container = document.getElementById('dataTableContainer');
-    const existingAlert = container.querySelector('.alert-info');
-    if (existingAlert) {
-        existingAlert.remove();
-    }
-    container.insertAdjacentHTML('beforebegin', summaryHtml);
 }
 
 // 顯示可用資料
@@ -398,298 +413,332 @@ function displayAvailableData(data) {
     const tbody = document.getElementById('dataTableBody');
     tbody.innerHTML = '';
     
-    data.forEach((item, index) => {
+    if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center">沒有可用的資料</td></tr>';
+        return;
+    }
+    
+    data.forEach(item => {
         const row = document.createElement('tr');
-        
-        // 根據資料品質設定行的樣式
-        if (item.has_analysis) {
-            row.classList.add('table-success');
-        } else if (item.esp32_points > 0) {
-            row.classList.add('table-info');
-        }
-        
-        // 判斷是否可以分析
-        const canAnalyze = (item.esp32_points > 0 || item.gps_points > 0) && !item.has_analysis;
+        const statusClass = item.status === 'analyzed' ? 'bg-success' : 'bg-secondary';
+        const statusText = item.status === 'analyzed' ? '已分析' : '待分析';
         
         row.innerHTML = `
             <td>
-                <input type="checkbox" class="form-check-input data-checkbox" 
-                       value="${item.date}" data-index="${index}"
-                       ${canAnalyze ? '' : 'disabled'}>
+                <input type="checkbox" class="form-check-input date-checkbox" 
+                       value="${item.date}" data-date="${item.date}">
             </td>
-            <td>
-                <strong>${item.date}</strong>
-                <br><small class="text-muted">${item.weekday || ''}</small>
-                ${item.is_weekend ? '<span class="badge bg-secondary ms-1">週末</span>' : ''}
-            </td>
-            <td>
-                ${item.esp32_points > 0 ? 
-                    `<span class="badge bg-primary">${item.esp32_points}</span>` : 
-                    '<span class="text-muted">-</span>'}
-            </td>
-            <td>
-                ${item.gps_points > 0 ? 
-                    `<span class="badge bg-info">${item.gps_points}</span>` : 
-                    '<span class="text-muted">-</span>'}
-            </td>
-            <td>
-                ${item.trips_count > 0 ? 
-                    `<span class="badge bg-success">${item.trips_count}</span>` : 
-                    '<span class="text-muted">-</span>'}
-            </td>
+            <td>${item.date}</td>
+            <td class="text-center">${item.esp32_count || item.gps_count || 0}</td>
+            <td class="text-center">${item.gps_count || 0}</td>
+            <td class="text-center">${item.trips_count || 0}</td>
             <td>${item.time_range || '-'}</td>
-            <td>${item.avg_speed > 0 ? item.avg_speed + ' km/h' : '-'}</td>
+            <td>${item.avg_speed || 0} km/h</td>
             <td>
-                ${item.has_analysis ? 
-                    '<span class="badge bg-success">已分析</span>' : 
-                    (canAnalyze ? 
-                        '<span class="badge bg-warning">待分析</span>' : 
-                        '<span class="badge bg-secondary">無資料</span>')}
+                <span class="badge ${statusClass}">${statusText}</span>
             </td>
         `;
         
         tbody.appendChild(row);
     });
     
-    // 綁定checkbox事件
-    document.querySelectorAll('.data-checkbox').forEach(checkbox => {
+    // 綁定 checkbox 事件
+    document.querySelectorAll('.date-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', updateSelectedCount);
     });
+    
+    console.log('資料表格已更新,共', data.length, '行');
+}
+
+// 更新選中數量
+function updateSelectedCount() {
+    const checkboxes = document.querySelectorAll('.date-checkbox:checked');
+    selectedDates = Array.from(checkboxes).map(cb => cb.value);
+    
+    document.getElementById('selectedCount').textContent = selectedDates.length;
+    
+    const analyzeBtn = document.getElementById('analyzeSelectedBtn');
+    analyzeBtn.disabled = selectedDates.length === 0;
+    
+    console.log('已選擇日期:', selectedDates);
 }
 
 // 全選/取消全選
 function toggleSelectAll() {
-    const isChecked = document.getElementById('selectAll').checked;
-    document.querySelectorAll('.data-checkbox:not(:disabled)').forEach(checkbox => {
-        checkbox.checked = isChecked;
+    const selectAll = document.getElementById('selectAll');
+    const checkboxes = document.querySelectorAll('.date-checkbox');
+    
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = selectAll.checked;
     });
+    
     updateSelectedCount();
-}
-
-// 更新選擇計數
-function updateSelectedCount() {
-    const checkedBoxes = document.querySelectorAll('.data-checkbox:checked');
-    const count = checkedBoxes.length;
-    
-    document.getElementById('selectedCount').textContent = count;
-    document.getElementById('analyzeSelectedBtn').disabled = count === 0;
-    
-    // 更新選中的日期列表
-    selectedDates = Array.from(checkedBoxes).map(cb => cb.value);
 }
 
 // 分析選中的資料
 async function analyzeSelectedData() {
     if (selectedDates.length === 0) {
-        Swal.fire('提示', '請選擇要分析的日期', 'warning');
+        Swal.fire({
+            icon: 'warning',
+            title: '請選擇日期',
+            text: '請至少選擇一個日期進行分析'
+        });
         return;
     }
     
-    // 確認分析
-    const confirmResult = await Swal.fire({
-        title: '確認分析',
-        text: `您選擇了 ${selectedDates.length} 天的資料進行分析，是否繼續？`,
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: '開始分析',
-        cancelButtonText: '取消'
-    });
+    console.log('開始分析,選中的日期:', selectedDates);
     
-    if (!confirmResult.isConfirmed) return;
-    
-    // 顯示載入提示
+    // 顯示單一載入動畫
     Swal.fire({
-        title: 'AI 分析中',
-        html: '正在使用 OpenAI 分析您的通勤模式和碳排放...<br>這可能需要幾秒鐘時間',
+        title: '分析中...',
+        html: `正在分析 ${selectedDates.length} 天的資料`,
         allowOutsideClick: false,
+        showConfirmButton: false,
         didOpen: () => {
             Swal.showLoading();
         }
     });
     
     try {
-        // 計算開始和結束日期
-        const sortedDates = selectedDates.sort();
-        const startDate = sortedDates[0];
-        const endDate = sortedDates[sortedDates.length - 1];
-        
         const response = await fetch('/user/carbon/analyze', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
             },
             body: JSON.stringify({
-                start_date: startDate,
-                end_date: endDate,
-                force_refresh: true,
-                data_source: 'all'  // 使用所有可用資料來源
+                dates: selectedDates
             })
         });
         
+        console.log('分析 API 回應狀態:', response.status);
         const result = await response.json();
-        
-        Swal.close();
+        console.log('分析 API 回應:', result);
         
         if (result.success) {
+            Swal.fire({
+                icon: 'success',
+                title: '分析完成!',
+                text: `成功分析了 ${selectedDates.length} 天的資料`,
+                timer: 2000,
+                showConfirmButton: false
+            });
+            
+            // 儲存分析結果
             currentAnalysisData = result;
             
             // 顯示分析結果
             displayAnalysisResults(result.data, result.summary);
             
-            // 成功提示
-            Swal.fire({
-                icon: 'success',
-                title: '分析完成',
-                text: '已成功分析您的通勤資料和碳排放量',
-                timer: 2000,
-                showConfirmButton: false
-            });
-            
             // 重新載入資料以更新狀態
-            setTimeout(loadAvailableData, 2000);
+            setTimeout(() => {
+                loadAvailableData();
+            }, 2000);
+            
         } else {
-            Swal.fire('錯誤', result.message || '分析失敗', 'error');
+            Swal.fire({
+                icon: 'error',
+                title: '分析失敗',
+                text: result.message || '分析過程中發生錯誤'
+            });
         }
+        
     } catch (error) {
-        console.error('分析失敗:', error);
-        Swal.fire('錯誤', '分析過程中發生錯誤，請稍後再試', 'error');
+        console.error('分析錯誤:', error);
+        Swal.fire({
+            icon: 'error',
+            title: '分析失敗',
+            text: '網路錯誤或伺服器無回應: ' + error.message
+        });
     }
 }
 
 // 顯示分析結果
 function displayAnalysisResults(data, summary) {
+    console.log('顯示分析結果:', { data, summary });
+    
     // 顯示結果區域
-    document.getElementById('analysisResultSection').style.display = 'block';
+    const resultSection = document.getElementById('analysisResultSection');
+    if (resultSection) {
+        resultSection.style.display = 'block';
+        resultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     
-    // 滾動到結果區域
-    document.getElementById('analysisResultSection').scrollIntoView({ behavior: 'smooth' });
-    
-    // 更新統計數據
+    // 更新統計卡片 - 修正數據提取邏輯
     if (summary) {
-        document.getElementById('statDays').textContent = summary.days_analyzed || 0;
-        document.getElementById('statDistance').textContent = (summary.total_distance || 0).toFixed(2);
-        document.getElementById('statDuration').textContent = ((summary.total_duration || 0) / 3600).toFixed(1);
-        document.getElementById('statEmission').textContent = (summary.total_emission || 0).toFixed(3);
+        // 總距離
+        const totalDistanceEl = document.getElementById('totalDistance');
+        if (totalDistanceEl) {
+            const distance = summary.total_distance || 0;
+            totalDistanceEl.textContent = distance.toFixed(2) + ' km';
+            console.log('總距離:', distance);
+        }
+        
+        // 碳排放量
+        const totalEmissionEl = document.getElementById('totalEmission');
+        if (totalEmissionEl) {
+            const emission = summary.total_emission || 0;
+            totalEmissionEl.textContent = emission.toFixed(3) + ' kg CO₂';
+            console.log('碳排放量:', emission);
+        }
+        
+        // 計算總時間 (分鐘)
+        const totalTimeEl = document.getElementById('totalTime');
+        if (totalTimeEl) {
+            let totalMinutes = 0;
+            
+            // 從 summary 獲取
+            if (summary.total_duration) {
+                totalMinutes = Math.round(summary.total_duration / 60);
+            } else {
+                // 從每日數據計算
+                data.forEach(item => {
+                    if (item.success && item.analysis) {
+                        const duration = item.analysis.total_duration || 0;
+                        totalMinutes += Math.round(duration / 60);
+                    }
+                });
+            }
+            
+            totalTimeEl.textContent = totalMinutes + ' 分鐘';
+            console.log('總時間:', totalMinutes, '分鐘');
+        }
     }
     
-    // 填充結果表格
-    const tbody = document.getElementById('resultTableBody');
-    tbody.innerHTML = '';
+    // 顯示每日詳細結果
+    displayDailyResults(data);
     
-    if (data && data.length > 0) {
-        data.forEach(item => {
-            const analysis = item.analysis || {};
-            const row = document.createElement('tr');
-            
-            row.innerHTML = `
-                <td>${item.date}</td>
-                <td>
-                    ${getTransportModeIcon(analysis.transport_mode)} 
-                    ${getTransportModeName(analysis.transport_mode)}
-                </td>
-                <td>${(analysis.total_distance || 0).toFixed(2)}</td>
-                <td>${Math.round((analysis.total_duration || 0) / 60)}</td>
-                <td>${(analysis.average_speed || 0).toFixed(1)}</td>
-                <td class="${getEmissionClass(analysis.carbon_emission)}">
-                    ${(analysis.carbon_emission || 0).toFixed(3)}
-                </td>
-                <td>
-                    <button class="btn btn-sm btn-outline-info" 
-                            onclick='showSuggestions(${JSON.stringify(analysis.suggestions || [])})'>
-                        查看建議
-                    </button>
-                </td>
-            `;
-            
-            tbody.appendChild(row);
-        });
+    // 繪製圖表
+    if (summary && summary.transport_modes) {
+        drawCharts(data, summary);
     }
     
-    // 生成圖表
-    generateCharts(data, summary);
-    
-    // 顯示AI建議
-    displayAISuggestions(data);
+    // 顯示 AI 建議
+    if (summary && summary.suggestions) {
+        displaySuggestions(summary.suggestions);
+    }
 }
 
-// 獲取交通工具圖標
-function getTransportModeIcon(mode) {
-    const icons = {
-        'walking': '🚶',
-        'bicycle': '🚴',
-        'motorcycle': '🏍️',
-        'car': '🚗',
-        'bus': '🚌',
-        'mixed': '🔄'
-    };
-    return icons[mode] || '❓';
-}
-
-// 獲取交通工具名稱
-function getTransportModeName(mode) {
-    const names = {
-        'walking': '步行',
-        'bicycle': '腳踏車',
-        'motorcycle': '機車',
-        'car': '汽車',
-        'bus': '公車',
-        'mixed': '混合'
-    };
-    return names[mode] || '未知';
-}
-
-// 獲取排放量等級樣式
-function getEmissionClass(emission) {
-    if (emission < 1) return 'text-success';
-    if (emission < 3) return 'text-warning';
-    return 'text-danger';
-}
-
-// 顯示建議
-function showSuggestions(suggestions) {
-    if (!suggestions || suggestions.length === 0) {
-        Swal.fire('建議', '暫無相關建議', 'info');
+// 顯示每日結果
+function displayDailyResults(data) {
+    const container = document.getElementById('dailyResultsContainer');
+    if (!container) {
+        console.warn('找不到 dailyResultsContainer 元素');
         return;
     }
     
-    let html = '<ul class="text-start">';
-    suggestions.forEach(suggestion => {
-        html += `<li class="mb-2">${suggestion}</li>`;
-    });
-    html += '</ul>';
+    container.innerHTML = '';
     
-    Swal.fire({
-        title: '🌱 減碳建議',
-        html: html,
-        icon: 'info',
-        width: '600px'
+    console.log('顯示每日結果,數據筆數:', data.length);
+    
+    let displayedCount = 0;
+    
+    data.forEach((item, index) => {
+        console.log(`處理第 ${index + 1} 筆資料:`, item);
+        
+        if (!item.success) {
+            console.warn(`第 ${index + 1} 筆資料分析失敗:`, item.message);
+            return;
+        }
+        
+        if (!item.analysis) {
+            console.warn(`第 ${index + 1} 筆資料沒有 analysis 物件`);
+            return;
+        }
+        
+        const analysis = item.analysis;
+        displayedCount++;
+        
+        const distance = (analysis.total_distance || 0).toFixed(2);
+        const duration = Math.round((analysis.total_duration || 0) / 60);
+        const avgSpeed = (analysis.average_speed || 0).toFixed(1);
+        const emission = (analysis.carbon_emission || 0).toFixed(3);
+        const transportMode = getTransportModeName(analysis.transport_mode || 'unknown');
+        
+        const cardHtml = `
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="mb-0">📅 ${item.date}</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-6">
+                                <p class="mb-2"><strong>🚗 交通工具:</strong><br>${transportMode}</p>
+                                <p class="mb-2"><strong>📏 距離:</strong><br>${distance} km</p>
+                                <p class="mb-0"><strong>⏱️ 時間:</strong><br>${duration} 分鐘</p>
+                            </div>
+                            <div class="col-6">
+                                <p class="mb-2"><strong>⚡ 平均速度:</strong><br>${avgSpeed} km/h</p>
+                                <p class="mb-2"><strong>🌱 碳排放:</strong><br>${emission} kg CO₂</p>
+                                ${analysis.confidence ? `<p class="mb-0"><strong>📊 信心度:</strong><br>${(analysis.confidence * 100).toFixed(0)}%</p>` : ''}
+                            </div>
+                        </div>
+                        ${analysis.route_analysis ? `
+                            <hr>
+                            <p class="mb-0 small text-muted"><strong>路線分析:</strong><br>${analysis.route_analysis}</p>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        container.insertAdjacentHTML('beforeend', cardHtml);
     });
+    
+    console.log(`成功顯示 ${displayedCount} 筆每日結果`);
+    
+    if (displayedCount === 0) {
+        container.innerHTML = '<div class="col-12"><div class="alert alert-warning">沒有可顯示的分析結果</div></div>';
+    }
 }
 
-// 生成圖表
-function generateCharts(data, summary) {
-    // 銷毀舊圖表
-    if (transportChart) transportChart.destroy();
-    if (emissionChart) emissionChart.destroy();
+// 繪製圖表
+function drawCharts(data, summary) {
+    console.log('繪製圖表,數據:', { data, summary });
     
     // 交通工具分布圖
-    const transportCtx = document.getElementById('transportChart').getContext('2d');
-    const transportData = summary.transport_modes || {};
+    if (summary.transport_modes && Object.keys(summary.transport_modes).length > 0) {
+        drawTransportChart(summary.transport_modes);
+    } else {
+        console.warn('沒有交通工具分布數據');
+    }
     
-    transportChart = new Chart(transportCtx, {
+    // 碳排放趨勢圖
+    drawEmissionTrendChart(data);
+}
+
+// 繪製交通工具分布圖
+function drawTransportChart(transportModes) {
+    const ctx = document.getElementById('transportChart');
+    if (!ctx) {
+        console.warn('找不到 transportChart 元素');
+        return;
+    }
+    
+    if (transportChart) {
+        transportChart.destroy();
+    }
+    
+    const labels = Object.keys(transportModes).map(mode => getTransportModeName(mode));
+    const values = Object.values(transportModes);
+    
+    console.log('交通工具圖表數據:', { labels, values });
+    
+    transportChart = new Chart(ctx, {
         type: 'pie',
         data: {
-            labels: Object.keys(transportData).map(mode => getTransportModeName(mode)),
+            labels: labels,
             datasets: [{
-                data: Object.values(transportData),
+                data: values,
                 backgroundColor: [
+                    '#007bff',
                     '#28a745',
-                    '#17a2b8',
                     '#ffc107',
                     '#dc3545',
-                    '#6610f2',
-                    '#6c757d'
+                    '#6c757d',
+                    '#17a2b8'
                 ]
             }]
         },
@@ -706,22 +755,40 @@ function generateCharts(data, summary) {
             }
         }
     });
+}
+
+// 繪製碳排放趨勢圖
+function drawEmissionTrendChart(data) {
+    const ctx = document.getElementById('emissionChart');
+    if (!ctx) {
+        console.warn('找不到 emissionChart 元素');
+        return;
+    }
     
-    // 碳排放趨勢圖
-    const emissionCtx = document.getElementById('emissionChart').getContext('2d');
-    const dates = data.map(item => item.date);
-    const emissions = data.map(item => (item.analysis?.carbon_emission || 0));
+    if (emissionChart) {
+        emissionChart.destroy();
+    }
     
-    emissionChart = new Chart(emissionCtx, {
+    const sortedData = data
+        .filter(item => item.success && item.analysis)
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    const labels = sortedData.map(item => item.date);
+    const emissions = sortedData.map(item => item.analysis.carbon_emission || 0);
+    
+    console.log('碳排放趨勢圖數據:', { labels, emissions });
+    
+    emissionChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: dates,
+            labels: labels,
             datasets: [{
                 label: '碳排放量 (kg CO₂)',
                 data: emissions,
                 borderColor: '#dc3545',
                 backgroundColor: 'rgba(220, 53, 69, 0.1)',
-                tension: 0.1
+                tension: 0.1,
+                fill: true
             }]
         },
         options: {
@@ -745,55 +812,71 @@ function generateCharts(data, summary) {
     });
 }
 
-// 顯示AI建議總結
-function displayAISuggestions(data) {
+// 顯示建議
+function displaySuggestions(suggestions) {
     const container = document.getElementById('aiSuggestions');
-    
-    // 收集所有建議
-    const allSuggestions = new Set();
-    data.forEach(item => {
-        if (item.analysis?.suggestions) {
-            item.analysis.suggestions.forEach(s => allSuggestions.add(s));
-        }
-    });
-    
-    if (allSuggestions.size === 0) {
-        container.innerHTML = '暫無建議';
+    if (!container) {
+        console.warn('找不到 aiSuggestions 元素');
         return;
     }
     
-    // 顯示前5個最重要的建議
-    const suggestions = Array.from(allSuggestions).slice(0, 5);
+    if (!suggestions || suggestions.length === 0) {
+        container.innerHTML = '<p class="text-muted mb-0">暫無建議</p>';
+        return;
+    }
+    
+    console.log('顯示建議:', suggestions);
+    
     let html = '<ul class="mb-0">';
     suggestions.forEach(suggestion => {
-        html += `<li>${suggestion}</li>`;
+        html += `<li class="mb-2">${suggestion}</li>`;
     });
     html += '</ul>';
     
     container.innerHTML = html;
 }
 
+// 獲取交通工具中文名稱
+function getTransportModeName(mode) {
+    const names = {
+        'walking': '步行 🚶',
+        'bicycle': '腳踏車 🚴',
+        'motorcycle': '機車 🏍️',
+        'car': '汽車 🚗',
+        'bus': '公車 🚌',
+        'mrt': '捷運 🚇',
+        'train': '火車 🚆',
+        'unknown': '未知'
+    };
+    
+    return names[mode] || mode;
+}
+
 // 匯出結果
 function exportResults() {
     if (!currentAnalysisData) {
-        Swal.fire('提示', '請先進行分析', 'warning');
+        Swal.fire('提示', '沒有可匯出的分析結果', 'warning');
         return;
     }
     
-    // 準備CSV資料
-    let csv = '日期,交通工具,距離(km),時間(分鐘),平均速度(km/h),碳排放(kg CO2)\n';
+    // 準備 CSV 資料
+    let csv = '\ufeff'; // UTF-8 BOM
+    csv += '日期,交通工具,距離(km),時間(分鐘),平均速度(km/h),碳排放(kg CO₂)\n';
     
     currentAnalysisData.data.forEach(item => {
-        const analysis = item.analysis || {};
-        csv += `${item.date},${getTransportModeName(analysis.transport_mode)},`;
-        csv += `${(analysis.total_distance || 0).toFixed(2)},`;
-        csv += `${Math.round((analysis.total_duration || 0) / 60)},`;
-        csv += `${(analysis.average_speed || 0).toFixed(1)},`;
-        csv += `${(analysis.carbon_emission || 0).toFixed(3)}\n`;
+        if (item.success && item.analysis) {
+            const analysis = item.analysis;
+            csv += `${item.date},`;
+            csv += `${getTransportModeName(analysis.transport_mode)},`;
+            csv += `${(analysis.total_distance || 0).toFixed(2)},`;
+            csv += `${Math.round((analysis.total_duration || 0) / 60)},`;
+            csv += `${(analysis.average_speed || 0).toFixed(1)},`;
+            csv += `${(analysis.carbon_emission || 0).toFixed(3)}\n`;
+        }
     });
     
-    // 下載CSV檔案
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    // 下載 CSV
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
@@ -803,325 +886,32 @@ function exportResults() {
     link.click();
     document.body.removeChild(link);
     
-    Swal.fire('成功', '分析報告已匯出', 'success');
+    Swal.fire({
+        icon: 'success',
+        title: '匯出成功',
+        text: 'CSV 檔案已下載',
+        timer: 1500,
+        showConfirmButton: false
+    });
 }
 
-// 重新分析
+// 重置分析
 function resetAnalysis() {
     document.getElementById('analysisResultSection').style.display = 'none';
     document.getElementById('selectAll').checked = false;
-    toggleSelectAll();
-    loadAvailableData();
-}
-
-// 載入歷史記錄
-async function loadHistory() {
-    const historyContent = document.getElementById('historyContent');
-    historyContent.innerHTML = '<div class="text-center"><div class="spinner-border"></div></div>';
-    historyContent.style.display = 'block';
-    
-    try {
-        const response = await fetch('/user/carbon/history', {
-            headers: {
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-            }
-        });
-        
-        const result = await response.json();
-        
-        if (result.success && result.data.data.length > 0) {
-            let html = '<table class="table table-sm table-hover mt-3">';
-            html += '<thead><tr><th>分析日期</th><th>交通工具</th><th>距離</th><th>碳排放</th><th>操作</th></tr></thead><tbody>';
-            
-            result.data.data.forEach(record => {
-                html += `<tr>
-                    <td>${record.analysis_date}</td>
-                    <td>${getTransportModeName(record.transport_mode)}</td>
-                    <td>${(record.total_distance).toFixed(2)} km</td>
-                    <td>${record.carbon_emission.toFixed(3)} kg CO₂</td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="viewHistoryDetail(${record.id})">
-                            查看詳情
-                        </button>
-                    </td>
-                </tr>`;
-                });
-            
-            html += '</tbody></table>';
-            historyContent.innerHTML = html;
-        } else {
-            historyContent.innerHTML = '<p class="text-muted">暫無歷史記錄</p>';
-        }
-    } catch (error) {
-        console.error('載入歷史記錄失敗:', error);
-        historyContent.innerHTML = '<p class="text-danger">載入失敗</p>';
-    }
-}
-
-// 查看歷史詳情
-function viewHistoryDetail(id) {
-    // 可以實作一個詳細視窗顯示更多資訊
-    Swal.fire({
-        title: '歷史詳情',
-        text: `分析ID: ${id} 的詳細資訊功能開發中`,
-        icon: 'info'
-    });
-}
-
-// Konami Code 彩蛋（開發者模式）
-let konamiCode = [];
-const konamiPattern = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
-
-document.addEventListener('keydown', (event) => {
-    konamiCode.push(event.key);
-    konamiCode.splice(-konamiPattern.length - 1, konamiCode.length - konamiPattern.length);
-    
-    if (konamiCode.join(',') === konamiPattern.join(',')) {
-        enableDeveloperMode();
-    }
-});
-
-// 啟用開發者模式
-function enableDeveloperMode() {
-    Swal.fire({
-        title: '🎮 開發者模式',
-        html: `
-            <div class="text-start">
-                <p>開發者模式已啟用！</p>
-                <hr>
-                <button class="btn btn-sm btn-outline-primary mb-2" onclick="testOpenAIConnection()">測試 OpenAI 連線</button><br>
-                <button class="btn btn-sm btn-outline-primary mb-2" onclick="generateTestData()">產生測試資料</button><br>
-                <button class="btn btn-sm btn-outline-primary mb-2" onclick="clearAllCache()">清除所有快取</button><br>
-                <button class="btn btn-sm btn-outline-primary mb-2" onclick="showSystemInfo()">顯示系統資訊</button><br>
-                <button class="btn btn-sm btn-outline-primary" onclick="showDebugInfo()">顯示除錯資訊</button>
-            </div>
-        `,
-        icon: 'success',
-        width: '400px'
-    });
-}
-
-// 測試 OpenAI 連線
-async function testOpenAIConnection() {
-    try {
-        const response = await fetch('/user/carbon/test/connection', {
-            headers: {
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-            }
-        });
-        const result = await response.json();
-        Swal.fire('測試結果', result.success ? '連線成功！' : '連線失敗', result.success ? 'success' : 'error');
-    } catch (error) {
-        Swal.fire('錯誤', '測試失敗: ' + error.message, 'error');
-    }
-}
-
-// 產生測試資料
-async function generateTestData() {
-    const { value: days } = await Swal.fire({
-        title: '產生測試資料',
-        input: 'number',
-        inputLabel: '要產生幾天的測試資料？',
-        inputValue: 7,
-        inputAttributes: {
-            min: 1,
-            max: 30
-        },
-        showCancelButton: true,
-        confirmButtonText: '產生',
-        cancelButtonText: '取消'
-    });
-    
-    if (days) {
-        // 這裡可以呼叫後端API來產生測試資料
-        Swal.fire({
-            icon: 'success',
-            title: '成功',
-            text: `已產生 ${days} 天的測試資料`,
-            timer: 2000
-        });
-        
-        // 重新載入資料
-        setTimeout(loadAvailableData, 2000);
-    }
-}
-
-// 清除快取
-async function clearAllCache() {
-    const confirmResult = await Swal.fire({
-        title: '確認清除',
-        text: '確定要清除所有快取嗎？',
-        icon: 'question',
-        showCancelButton: true
-    });
-    
-    if (!confirmResult.isConfirmed) return;
-    
-    try {
-        const response = await fetch('/user/carbon/test/clear-cache', {
-            method: 'POST',
-            headers: {
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-            }
-        });
-        const result = await response.json();
-        Swal.fire('成功', '快取已清除', 'success');
-    } catch (error) {
-        Swal.fire('錯誤', '清除失敗: ' + error.message, 'error');
-    }
-}
-
-// 顯示系統資訊
-async function showSystemInfo() {
-    try {
-        const response = await fetch('/user/carbon/test/config', {
-            headers: {
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-            }
-        });
-        const result = await response.json();
-        
-        Swal.fire({
-            title: '系統資訊',
-            html: `<pre class="text-start" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(result, null, 2)}</pre>`,
-            width: '600px'
-        });
-    } catch (error) {
-        Swal.fire('錯誤', '無法載入系統資訊: ' + error.message, 'error');
-    }
-}
-
-// 顯示除錯資訊
-function showDebugInfo() {
-    const debugInfo = {
-        availableDataCount: availableData.length,
-        selectedDatesCount: selectedDates.length,
-        currentMonth: document.getElementById('monthSelector').value,
-        hasAnalysisData: currentAnalysisData !== null,
-        chartsLoaded: transportChart !== null && emissionChart !== null,
-        browserInfo: {
-            userAgent: navigator.userAgent,
-            language: navigator.language,
-            platform: navigator.platform
-        },
-        timestamp: new Date().toISOString()
-    };
+    selectedDates = [];
+    updateSelectedCount();
     
     Swal.fire({
-        title: '除錯資訊',
-        html: `<pre class="text-start" style="max-height: 400px; overflow-y: auto;">${JSON.stringify(debugInfo, null, 2)}</pre>`,
-        width: '600px'
+        icon: 'info',
+        title: '已重置',
+        text: '可以重新選擇日期進行分析',
+        timer: 1500,
+        showConfirmButton: false
     });
 }
 
-// 輔助功能：格式化日期
-function formatDate(dateString) {
-    const date = new Date(dateString);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-// 輔助功能：格式化時間
-function formatTime(seconds) {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) {
-        return `${hours}小時${minutes}分鐘`;
-    }
-    return `${minutes}分鐘`;
-}
-
-// 輔助功能：計算平均值
-function calculateAverage(arr) {
-    if (arr.length === 0) return 0;
-    const sum = arr.reduce((a, b) => a + b, 0);
-    return sum / arr.length;
-}
-
-// 錯誤處理
-window.addEventListener('error', function(event) {
-    console.error('全域錯誤捕獲:', event.error);
-    // 可以在這裡加入錯誤回報機制
-});
-
-// 監聽網路狀態
-window.addEventListener('online', function() {
-    console.log('網路已連接');
-    // 可以在這裡重新載入資料
-});
-
-window.addEventListener('offline', function() {
-    console.log('網路已斷開');
-    Swal.fire({
-        icon: 'warning',
-        title: '網路斷開',
-        text: '請檢查您的網路連接',
-        timer: 3000
-    });
-});
-
-// 自動儲存功能（如果需要）
-let autoSaveTimer = null;
-
-function enableAutoSave() {
-    if (autoSaveTimer) clearInterval(autoSaveTimer);
-    
-    autoSaveTimer = setInterval(() => {
-        if (currentAnalysisData) {
-            localStorage.setItem('carbonAnalysisData', JSON.stringify(currentAnalysisData));
-            console.log('自動儲存完成');
-        }
-    }, 60000); // 每分鐘自動儲存
-}
-
-// 從本地儲存恢復資料
-function restoreFromLocalStorage() {
-    const savedData = localStorage.getItem('carbonAnalysisData');
-    if (savedData) {
-        try {
-            currentAnalysisData = JSON.parse(savedData);
-            console.log('已從本地儲存恢復資料');
-            
-            // 詢問是否要顯示之前的分析結果
-            Swal.fire({
-                title: '發現未完成的分析',
-                text: '是否要載入之前的分析結果？',
-                icon: 'question',
-                showCancelButton: true,
-                confirmButtonText: '載入',
-                cancelButtonText: '忽略'
-            }).then((result) => {
-                if (result.isConfirmed && currentAnalysisData) {
-                    displayAnalysisResults(currentAnalysisData.data, currentAnalysisData.summary);
-                }
-            });
-        } catch (error) {
-            console.error('恢復資料失敗:', error);
-            localStorage.removeItem('carbonAnalysisData');
-        }
-    }
-}
-
-// 頁面載入時檢查本地儲存
-document.addEventListener('DOMContentLoaded', function() {
-    // 恢復之前的資料（如果有）
-    restoreFromLocalStorage();
-    
-    // 啟用自動儲存
-    enableAutoSave();
-});
-
-// 頁面離開前儲存狀態
-window.addEventListener('beforeunload', function(e) {
-    if (currentAnalysisData) {
-        localStorage.setItem('carbonAnalysisData', JSON.stringify(currentAnalysisData));
-    }
-});
-
-// 初始化提示訊息
-console.log('%c🌱 碳排放分析系統已載入', 'color: green; font-size: 16px; font-weight: bold;');
-console.log('%c提示: 按下 ↑↑↓↓←→←→BA 可以啟用開發者模式', 'color: blue; font-size: 12px;');
+// 初始化提示
+console.log('%c🌱 AI 碳排放分析系統已載入', 'color: green; font-size: 16px; font-weight: bold;');
 </script>
 @endsection

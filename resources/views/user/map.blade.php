@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 樹德科技大學座標
     const stuStart = [22.7632, 120.3757];
-    const mcdonaldEnd = [22.8047, 120.4343];
+    const mcdonaldEnd = [22.727122, 120.326630];
     
     let routeControl = null;
     let actualRouteLayer = null;

@@ -208,11 +208,11 @@ Route::middleware(['auth:sanctum'])->prefix('api')->name('api.')->group(function
     Route::post('/trips/analyze-transport', [App\Http\Controllers\Api\TripController::class, 'analyzeTransport'])->name('trips.analyze-transport');
     
     // 碳排放 API
-    Route::apiResource('carbon-emissions', App\Http\Controllers\Api\CarbonEmissionController::class);
-    Route::get('/carbon-emissions/statistics/monthly', [App\Http\Controllers\Api\CarbonEmissionController::class, 'monthlyStatistics'])->name('carbon-emissions.monthly-stats');
-    Route::get('/carbon-emissions/statistics/transport', [App\Http\Controllers\Api\CarbonEmissionController::class, 'transportStatistics'])->name('carbon-emissions.transport-stats');
-    Route::get('/carbon-emissions/trends', [App\Http\Controllers\Api\CarbonEmissionController::class, 'getTrends'])->name('carbon-emissions.trends');
-    Route::get('/carbon-emissions/comparison', [App\Http\Controllers\Api\CarbonEmissionController::class, 'getComparison'])->name('carbon-emissions.comparison');
+    // Route::apiResource('carbon-emissions', App\Http\Controllers\Api\CarbonEmissionController::class);
+    // Route::get('/carbon-emissions/statistics/monthly', [App\Http\Controllers\Api\CarbonEmissionController::class, 'monthlyStatistics'])->name('carbon-emissions.monthly-stats');
+    // Route::get('/carbon-emissions/statistics/transport', [App\Http\Controllers\Api\CarbonEmissionController::class, 'transportStatistics'])->name('carbon-emissions.transport-stats');
+    // Route::get('/carbon-emissions/trends', [App\Http\Controllers\Api\CarbonEmissionController::class, 'getTrends'])->name('carbon-emissions.trends');
+    // Route::get('/carbon-emissions/comparison', [App\Http\Controllers\Api\CarbonEmissionController::class, 'getComparison'])->name('carbon-emissions.comparison');
 });
 
 // ===== 公開 API 路由（不需要認證，ESP32 使用）=====
@@ -388,6 +388,25 @@ Route::get('/devices', [App\Http\Controllers\Admin\DeviceController::class, 'ind
 Route::middleware(['auth'])->prefix('api')->group(function () {
     Route::post('/devices', [App\Http\Controllers\Admin\DeviceController::class, 'store']);
     Route::delete('/devices/{deviceId}', [App\Http\Controllers\Admin\DeviceController::class, 'destroy']);
+});
+
+// 在 User 路由群組中
+Route::middleware(['auth'])->prefix('user')->name('user.')->group(function () {
+    
+    // 碳排放 AI 分析
+    Route::prefix('carbon')->name('carbon.')->group(function () {
+        Route::get('/ai-analyses', [CarbonEmissionController::class, 'aiAnalyses'])->name('aiAnalyses');
+        Route::post('/analyze', [CarbonEmissionController::class, 'analyze'])->name('analyze');
+        Route::get('/history', [CarbonEmissionController::class, 'history'])->name('history');
+        Route::get('/statistics', [CarbonEmissionController::class, 'statistics'])->name('statistics');
+        
+        // 關鍵路由 - 獲取可分析的資料
+        Route::get('/available-data', [CarbonEmissionController::class, 'getAvailableData'])->name('availableData');
+        
+        // 測試功能
+        Route::get('/test/connection', [CarbonEmissionController::class, 'testConnection']);
+        Route::post('/test/clear-cache', [CarbonEmissionController::class, 'clearCache']);
+    });
 });
 
 // ===== 錯誤處理路由 =====

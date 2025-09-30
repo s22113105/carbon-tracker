@@ -33,12 +33,9 @@ return [
 
     // OpenAI 設定 - 重要：絕對不要在這裡直接寫 API Key！
     'openai' => [
-        'api_key' => env('OPENAI_API_KEY'),  // 不要設定預設值！
-        'api_url' => env('OPENAI_API_URL', 'https://api.openai.com'),
-        'model' => env('OPENAI_MODEL', 'gpt-3.5-turbo'),
-        'max_tokens' => (int) env('OPENAI_MAX_TOKENS', 2000),
-        'temperature' => (float) env('OPENAI_TEMPERATURE', 0.3),
-        'timeout' => (int) env('OPENAI_TIMEOUT', 60),
+        'api_key' => env('OPENAI_API_KEY'),
+        'model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
+        'api_url' => env('OPENAI_API_URL', 'https://api.openai.com/v1/chat/completions'),
     ],
 
 ];
